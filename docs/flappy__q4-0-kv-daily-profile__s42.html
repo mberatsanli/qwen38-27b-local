@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Flappy Bird</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#241a10;
+    --cream:#fff6e6;
+    --gold:#ffd23f;
+    --coral:#ff6b57;
+    --sky1:#37b6e6;
+    --sky2:#a9e6f7;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    font-family:'Fredoka',system-ui,sans-serif;
+    background:
+      radial-gradient(1200px 700px at 50% -10%, #2a5f86 0%, transparent 60%),
+      linear-gradient(160deg,#0e2a3d 0%, #123a52 45%, #0c2233 100%);
+    display:flex;align-items:center;justify-content:center;
+    min-height:100vh;padding:18px;overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .stage{
+    position:relative;
+    width:min(94vw,440px);
+    aspect-ratio:440/660;
+    border-radius:22px;
+    overflow:hidden;
+    background:#8fd8f0;
+    box-shadow:
+      0 30px 60px -18px rgba(0,0,0,.65),
+      0 0 0 6px rgba(255,255,255,.06),
+      inset 0 0 0 2px rgba(255,255,255,.15);
+    user-select:none;
+    touch-action:none;
+  }
+  canvas{display:block;width:100%;height:100%;}
+
+  /* ---------- HUD ---------- */
+  .hud{
+    position:absolute;top:16px;left:0;right:0;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    padding:0 18px;pointer-events:none;z-index:5;
+  }
+  .score{
+    font-family:'Press Start 2P',monospace;
+    font-size:34px;color:var(--cream);
+    text-shadow:
+      2px 0 0 var(--ink),-2px 0 0 var(--ink),0 2px 0 var(--ink),0 -2px 0 var(--ink),
+      2px 2px 0 var(--ink),-2px -2px 0 var(--ink),2px -2px 0 var(--ink),-2px 2px 0 var(--ink),
+      0 5px 0 rgba(0,0,0,.35);
+    letter-spacing:1px;
+  }
+  .medal{
+    pointer-events:auto;cursor:pointer;
+    width:52px;height:52px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px;
+    background:radial-gradient(circle at 35% 30%, #fff, #dfe6ea 70%);
+    box-shadow:0 4px 0 rgba(0,0,0,.25), inset 0 -4px 6px rgba(0,0,0,.15);
+    transition:transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .medal:hover{transform:scale(1.12) rotate(-8deg);}
+  .medal:active{transform:scale(.94);}
+  .medal.muted{filter:grayscale(1) brightness(.8);}
+
+  /* ---------- Overlays ---------- */
+  .overlay{
+    position:absolute;inset:0;z-index:10;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;text-align:center;padding:24px;
+    background:rgba(10,30,45,.35);
+    backdrop-filter:blur(2px);
+    opacity:0;pointer-events:none;transition:opacity .35s ease;
+  }
+  .overlay.show{opacity:1;pointer-events:auto;}
+
+  .title{
+    font-family:'Press Start 2P',monospace;
+    font-size:clamp(30px,9vw,44px);
+    color:var(--gold);
+    text-shadow:
+      3px 0 0 var(--ink),-3px 0 0 var(--ink),0 3px 0 var(--ink),0 -3px 0 var(--ink),
+      3px 3px 0 var(--ink),-3px -3px 0 var(--ink),3px -3px 0 var(--ink),-3px 3px 0 var(--ink),
+      0 8px 0 rgba(0,0,0,.35);
+    transform:rotate(-3deg);
+    animation:bob 2.4s ease-in-out infinite;
+  }
+  @keyframes bob{0%,100%{transform:rotate(-3deg) translateY(0);}50%{transform:rotate(-3deg) translateY(-8px);}}
+
+  .card{
+    background:linear-gradient(180deg,#fffdf7,#ffe9c2);
+    border:3px solid var(--ink);
+    border-radius:16px;
+    padding:16px 22px;
+    box-shadow:0 8px 0 rgba(0,0,0,.28);
+    display:flex;gap:26px;align-items:center;
+  }
+  .stat{display:flex;flex-direction:column;gap:4px;}
+  .stat .lbl{font-size:11px;font-weight:700;letter-spacing:2px;color:#a06a2c;text-transform:uppercase;}
+  .stat .val{font-family:'Press Start 2P',monospace;font-size:22px;color:var(--ink);}
+  .stat .val.gold{color:#e0a400;}
+
+  .btn{
+    font-family:'Fredoka',sans-serif;font-weight:700;font-size:20px;
+    color:var(--ink);
+    background:linear-gradient(180deg,#ffe27a,#ffcf3f);
+    border:3px solid var(--ink);
+    border-radius:14px;
+    padding:12px 30px;cursor:pointer;
+    box-shadow:0 6px 0 #b98a1e, 0 10px 14px rgba(0,0,0,.25);
+    transition:transform .12s ease, box-shadow .12s ease, filter .12s;
+    letter-spacing:.5px;
+  }
+  .btn:hover{transform:translateY(-2px);box-shadow:0 8px 0 #b98a1e, 0 14px 18px rgba(0,0,0,.28);filter:brightness(1.05);}
+  .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #b98a1e, 0 4px 8px rgba(0,0,0,.25);}
+
+  .hint{
+    font-size:15px;font-weight:600;color:var(--cream);
+    text-shadow:0 2px 4px rgba(0,0,0,.5);
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.75;}50%{opacity:1;}}
+
+  .tag{
+    font-family:'Press Start 2P',monospace;font-size:12px;color:var(--cream);
+    text-shadow:0 2px 0 rgba(0,0,0,.4);
+    margin-bottom:2px;
+  }
+  .newbest{
+    font-family:'Press Start 2P',monospace;font-size:12px;color:#fff;
+    background:var(--coral);border:2px solid var(--ink);border-radius:20px;
+    padding:6px 14px;box-shadow:0 4px 0 rgba(0,0,0,.3);
+    animation:pop .5s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes pop{0%{transform:scale(0);}100%{transform:scale(1);}}
+
+  .foot{
+    position:absolute;bottom:10px;left:0;right:0;text-align:center;
+    font-size:12px;font-weight:600;color:rgba(255,255,255,.7);
+    text-shadow:0 1px 2px rgba(0,0,0,.4);pointer-events:none;z-index:5;
+  }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <canvas id="game"></canvas>
+
+    <div class="hud">
+      <div class="score" id="score">0</div>
+      <div class="medal" id="medal" title="Toggle sound">🔊</div>
+    </div>
+
+    <!-- READY -->
+    <div class="overlay show" id="ready">
+      <div class="title">FLAPPY</div>
+      <div class="hint">Tap, click or press SPACE to flap</div>
+      <button class="btn" id="startBtn">PLAY</button>
+    </div>
+
+    <!-- GAME OVER -->
+    <div class="overlay" id="over">
+      <div class="tag">GAME OVER</div>
+      <div class="newbest" id="newbest" style="display:none">NEW BEST!</div>
+      <div class="card">
+        <div class="stat">
+          <span class="lbl">Score</span>
+          <span class="val" id="finalScore">0</span>
+        </div>
+        <div class="stat">
+          <span class="lbl">Best</span>
+          <span class="val gold" id="bestScore">0</span>
+        </div>
+      </div>
+      <button class="btn" id="restartBtn">PLAY AGAIN</button>
+    </div>
+
+    <div class="foot">Space / Click to flap · M to mute</div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Canvas setup ----------
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 440, H = 660;
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  ctx.scale(DPR, DPR);
+
+  // ---------- Constants ----------
+  const GROUND_H = 96;
+  const GROUND_Y = H - GROUND_H;
+  const GRAVITY = 0.42;
+  const FLAP = -7.6;
+  const MAX_FALL = 12;
+  const PIPE_SPEED = 2.5;
+  const PIPE_W = 66;
+  const PIPE_GAP = 158;
+  const PIPE_SPACING = 220;
+  const BIRD_X = 118;
+  const BIRD_R = 15;
+
+  // ---------- State ----------
+  let state = 'ready'; // ready | playing | dead
+  let score = 0;
+  let best = 0;
+  try { best = parseInt(localStorage.getItem('flappy_best') || '0', 10) || 0; } catch(e){}
+
+  const bird = { x: BIRD_X, y: H/2, vy: 0, rot: 0, wing: 0 };
+  let pipes = [];
+  let clouds = [];
+  let hills = [];
+  let particles = [];
+  let groundOffset = 0;
+  let shake = 0;
+  let flash = 0;
+  let muted = false;
+  let last = 0;
+
+  // ---------- Audio ----------
+  let actx = null;
+  function audio(){
+    if(!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+    if(actx && actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function beep(freq, dur, type, vol, slideTo){
+    if(muted) return;
+    const a = audio(); if(!a) return;
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(freq, a.currentTime);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, a.currentTime + dur);
+    g.gain.setValueAtTime(vol || 0.12, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+    o.connect(g).connect(a.destination);
+    o.start();
+    o.stop(a.currentTime + dur);
+  }
+  const sfx = {
+    flap:  () => beep(520, 0.12, 'square', 0.10, 720),
+    score: () => { beep(880, 0.09, 'square', 0.10); setTimeout(()=>beep(1320,0.12,'square',0.10),70); },
+    hit:   () => beep(180, 0.25, 'sawtooth', 0.16, 60),
+    die:   () => beep(300, 0.5, 'triangle', 0.14, 90)
+  };
+
+  // ---------- Helpers ----------
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  function makeClouds(){
+    clouds = [];
+    for(let i=0;i<6;i++){
+      clouds.push({ x: rand(0,W), y: rand(40,260), s: rand(0.6,1.4), sp: rand(0.15,0.4) });
+    }
+  }
+  function makeHills(){
+    hills = [];
+    for(let i=0;i<5;i++){
+      hills.push({ x: i*120, w: rand(120,180), h: rand(40,70) });
+    }
+  }
+  makeClouds(); makeHills();
+
+  function reset(){
+    bird.y = H/2; bird.vy = 0; bird.rot = 0; bird.wing = 0;
+    pipes = [];
+    particles = [];
+    score = 0;
+    shake = 0; flash = 0;
+    // pre-place pipes ahead
+    for(let i=0;i<3;i++){
+      pipes.push(newPipe(W + 120 + i*PIPE_SPACING));
+    }
+    updateScore();
+  }
+
+  function newPipe(x){
+    const minTop = 70;
+    const maxTop = GROUND_Y - PIPE_GAP - 70;
+    const topH = rand(minTop, maxTop);
+    return { x: x, topH: topH, passed: false };
+  }
+
+  function updateScore(){
+    document.getElementById('score').textContent = score;
+  }
+
+  // ---------- Input ----------
+  function flap(){
+    if(state === 'ready'){
+      state = 'playing';
+      hide('ready');
+      bird.vy = FLAP;
+      sfx.flap();
+      return;
+    }
+    if(state === 'playing'){
+      bird.vy = FLAP;
+      sfx.flap();
+    }
+  }
+
+  function startGame(){
+    reset();
+    state = 'playing';
+    hide('ready'); hide('over');
+    bird.vy = FLAP;
+    sfx.flap();
+  }
+
+  function gameOver(){
+    if(state === 'dead') return;
+    state = 'dead';
+    shake = 14; flash = 1;
+    sfx.hit();
+    setTimeout(()=>sfx.die(), 120);
+    // burst
+    for(let i=0;i<26;i++){
+      particles.push({
+        x: bird.x, y: bird.y,
+        vx: rand(-4,4), vy: rand(-6,2),
+        r: rand(2,5), life: 1,
+        c: Math.random()<0.5 ? '#ffd23f' : '#fff6e6'
+      });
+    }
+    const isBest = score > best;
+    if(isBest){ best = score; try{ localStorage.setItem('flappy_best', String(best)); }catch(e){} }
+    document.getElementById('finalScore').textContent = score;
+    document.getElementById('bestScore').textContent = best;
+    document.getElementById('newbest').style.display = isBest ? 'inline-block' : 'none';
+    setTimeout(()=>show('over'), 550);
+  }
+
+  function show(id){ document.getElementById(id).classList.add('show'); }
+  function hide(id){ document.getElementById(id).classList.remove('show'); }
+
+  // ---------- Update ----------
+  function update(dt){
+    // clouds always drift
+    for(const c of clouds){
+      c.x -= c.sp * (state==='playing'?1:0.5);
+      if(c.x < -80){ c.x = W + 80; c.y = rand(40,260); c.s = rand(0.6,1.4); }
+    }
+
+    if(state === 'playing'){
+      groundOffset = (groundOffset + PIPE_SPEED) % 48;
+      // pipes
+      for(const p of pipes){
+        p.x -= PIPE_SPEED;
+        if(!p.passed && p.x + PIPE_W < bird.x){
+          p.passed = true;
+          score++;
+          updateScore();
+          sfx.score();
+        }
+      }
+      if(pipes.length && pipes[0].x + PIPE_W < -20){
+        pipes.shift();
+        const lastX = pipes.length ? pipes[pipes.length-1].x : W;
+        pipes.push(newPipe(lastX + PIPE_SPACING));
+      }
+    }
+
+    if(state === 'playing' || state === 'dead'){
+      // bird physics
+      bird.vy += GRAVITY;
+      if(bird.vy > MAX_FALL) bird.vy = MAX_FALL;
+      bird.y += bird.vy;
+      // rotation
+      const target = bird.vy < 0 ? -0.5 : Math.min(1.4, bird.vy * 0.12);
+      bird.rot += (target - bird.rot) * 0.2;
+      bird.wing += 0.35;
+
+      // ground
+      if(bird.y + BIRD_R >= GROUND_Y){
+        bird.y = GROUND_Y - BIRD_R;
+        if(state === 'playing') gameOver();
+        else bird.vy = 0;
+      }
+      // ceiling
+      if(bird.y - BIRD_R < 0){ bird.y = BIRD_R; bird.vy = 0; }
+
+      // pipe collision (only while playing)
+      if(state === 'playing'){
+        for(const p of pipes){
+          const withinX = bird.x + BIRD_R > p.x && bird.x - BIRD_R < p.x + PIPE_W;
+          if(withinX){
+            const gapTop = p.topH;
+            const gapBot = p.topH + PIPE_GAP;
+            if(bird.y - BIRD_R < gapTop || bird.y + BIRD_R > gapBot){
+              gameOver();
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // particles
+    for(let i=particles.length-1;i>=0;i--){
+      const pt = particles[i];
+      pt.vy += 0.3;
+      pt.x += pt.vx;
+      pt.y += pt.vy;
+      pt.life -= 0.02;
+      if(pt.life <= 0) particles.splice(i,1);
+    }
+
+    if(shake > 0) shake *= 0.85;
+    if(flash > 0) flash -= 0.06;
+  }
+
+  // ---------- Draw ----------
+  function drawSky(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#37b6e6');
+    g.addColorStop(0.55,'#7fd4f0');
+    g.addColorStop(1,'#c9ecf7');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // sun
+    const sx = W-80, sy = 90;
+    const sg = ctx.createRadialGradient(sx,sy,4,sx,sy,70);
+    sg.addColorStop(0,'rgba(255,247,200,0.95)');
+    sg.addColorStop(0.4,'rgba(255,236,150,0.5)');
+    sg.addColorStop(1,'rgba(255,236,150,0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(sx,sy,70,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff2b0';
+    ctx.beginPath(); ctx.arc(sx,sy,26,0,Math.PI*2); ctx.fill();
+  }
+
+  function drawCloud(c){
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.scale(c.s, c.s);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    const puffs = [[0,0,22],[20,-6,18],[40,0,20],[20,8,24]];
+    for(const p of puffs){
+      ctx.beginPath(); ctx.arc(p[0],p[1],p[2],0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawHills(){
+    // far hills
+    ctx.fillStyle = '#8fd6a0';
+    for(const h of hills){
+      const x = ((h.x - groundOffset*0.4) % (W+200) + (W+200)) % (W+200) - 100;
+      ctx.beginPath();
+      ctx.moveTo(x, GROUND_Y);
+      ctx.quadraticCurveTo(x + h.w/2, GROUND_Y - h.h, x + h.w, GROUND_Y);
+      ctx.fill();
+    }
+    // near hills
+    ctx.fillStyle = '#6fc489';
+    for(const h of hills){
+      const x = ((h.x*1.3 - groundOffset*0.7) % (W+200) + (W+200)) % (W+200) - 100;
+      ctx.beginPath();
+      ctx.moveTo(x, GROUND_Y);
+      ctx.quadraticCurveTo(x + h.w/2, GROUND_Y - h.h*0.7, x + h.w, GROUND_Y);
+      ctx.fill();
+    }
+  }
+
+  function drawPipe(p){
+    const capH = 26;
+    const capOver = 5;
+    // top pipe body
+    drawPipeBody(p.x, 0, PIPE_W, p.topH - capH, true);
+    drawPipeCap(p.x - capOver, p.topH - capH, PIPE_W + capOver*2, capH, true);
+    // bottom pipe
+    const by = p.topH + PIPE_GAP;
+    drawPipeCap(p.x - capOver, by, PIPE_W + capOver*2, capH, false);
+    drawPipeBody(p.x, by + capH, PIPE_W, GROUND_Y - (by + capH), false);
+  }
+
+  function pipeGradient(x, w){
+    const g = ctx.createLinearGradient(x,0,x+w,0);
+    g.addColorStop(0,'#4a9e2f');
+    g.addColorStop(0.18,'#7ed957');
+    g.addColorStop(0.42,'#aef08a');
+    g.addColorStop(0.6,'#7ed957');
+    g.addColorStop(1,'#3f8a28');
+    return g;
+  }
+
+  function drawPipeBody(x,y,w,h,isTop){
+    if(h <= 0) return;
+    ctx.fillStyle = pipeGradient(x,w);
+    ctx.fillRect(x,y,w,h);
+    // outline
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#2f6b1f';
+    ctx.strokeRect(x+1.5,y+1.5,w-3,h-3);
+    // highlight stripe
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(x + w*0.22, y, w*0.12, h);
+  }
+
+  function drawPipeCap(x,y,w,h,isTop){
+    ctx.fillStyle = pipeGradient(x,w);
+    ctx.fillRect(x,y,w,h);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#2f6b1f';
+    ctx.strokeRect(x+1.5,y+1.5,w-3,h-3);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(x + w*0.22, y, w*0.12, h);
+  }
+
+  function drawGround(){
+    // dirt
+    ctx.fillStyle = '#d9b26a';
+    ctx.fillRect(0, GROUND_Y, W, GROUND_H);
+    // grass strip
+    ctx.fillStyle = '#7ec850';
+    ctx.fillRect(0, GROUND_Y, W, 16);
+    ctx.fillStyle = '#5aa838';
+    ctx.fillRect(0, GROUND_Y + 16, W, 4);
+    // moving grass tufts
+    ctx.fillStyle = '#8fd85f';
+    for(let x = -48; x < W + 48; x += 48){
+      const gx = x - groundOffset;
+      ctx.beginPath();
+      ctx.moveTo(gx, GROUND_Y + 16);
+      ctx.lineTo(gx + 12, GROUND_Y + 2);
+      ctx.lineTo(gx + 24, GROUND_Y + 16);
+      ctx.fill();
+    }
+    // dirt speckles
+    ctx.fillStyle = 'rgba(120,80,30,0.25)';
+    for(let x = -48; x < W + 48; x += 48){
+      const gx = x - groundOffset;
+      ctx.fillRect(gx + 10, GROUND_Y + 40, 6, 6);
+      ctx.fillRect(gx + 30, GROUND_Y + 60, 5, 5);
+    }
+  }
+
+  function drawBird(){
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate(bird.rot);
+
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.beginPath(); ctx.ellipse(0, BIRD_R*0.9, BIRD_R*1.1, BIRD_R*0.5, 0, 0, Math.PI*2); ctx.fill();
+
+    // body
+    const bg = ctx.createRadialGradient(-4,-5,3,0,0,BIRD_R*1.3);
+    bg.addColorStop(0,'#fff2a8');
+    bg.addColorStop(0.6,'#ffd23f');
+    bg.addColorStop(1,'#f5a623');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.ellipse(0,0,BIRD_R*1.15,BIRD_R,0,0,Math.PI*2);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#241a10';
+    ctx.stroke();
+
+    // wing (flapping)
+    const wingY = Math.sin(bird.wing) * 5;
+    ctx.fillStyle = '#ffcf3f';
+    ctx.beginPath();
+    ctx.ellipse(-3, 2 + wingY, BIRD_R*0.7, BIRD_R*0.5, -0.3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#241a10';
+    ctx.stroke();
+
+    // eye
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(6,-5,6,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#241a10'; ctx.stroke();
+    ctx.fillStyle = '#241a10';
+    ctx.beginPath(); ctx.arc(8,-5,2.6,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(9,-6,1,0,Math.PI*2); ctx.fill();
+
+    // beak
+    ctx.fillStyle = '#ff7a3c';
+    ctx.beginPath();
+    ctx.moveTo(11,-1);
+    ctx.lineTo(22,1);
+    ctx.lineTo(11,5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#241a10'; ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawParticles(){
+    for(const pt of particles){
+      ctx.globalAlpha = Math.max(0, pt.life);
+      ctx.fillStyle = pt.c;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function draw(){
+    ctx.save();
+    if(shake > 0.5){
+      ctx.translate(rand(-shake,shake), rand(-shake,shake));
+    }
+    drawSky();
+    for(const c of clouds) drawCloud(c);
+    drawHills();
+    for(const p of pipes) drawPipe(p);
+    drawGround();
+    drawBird();
+    drawParticles();
+    ctx.restore();
+
+    if(flash > 0){
+      ctx.fillStyle = 'rgba(255,255,255,' + (flash*0.8) + ')';
+      ctx.fillRect(0,0,W,H);
+    }
+  }
+
+  // ---------- Loop ----------
+  function loop(t){
+    if(!last) last = t;
+    let dt = (t - last) / 16.667;
+    if(dt > 3) dt = 3;
+    last = t;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Wire up UI ----------
+  document.getElementById('startBtn').addEventListener('click', e => { e.stopPropagation(); startGame(); });
+  document.getElementById('restartBtn').addEventListener('click', e => { e.stopPropagation(); startGame(); });
+
+  const medal = document.getElementById('medal');
+  function toggleMute(){
+    muted = !muted;
+    medal.textContent = muted ? '🔇' : '🔊';
+    medal.classList.toggle('muted', muted);
+  }
+  medal.addEventListener('click', e => { e.stopPropagation(); toggleMute(); });
+
+  // pointer on stage
+  canvas.addEventListener('pointerdown', e => { e.preventDefault(); flap(); });
+  document.getElementById('stage').addEventListener('pointerdown', e => {
+    if(e.target === medal) return;
+    if(state !== 'over') flap();
+  });
+
+  // keyboard
+  window.addEventListener('keydown', e => {
+    if(e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW'){
+      e.preventDefault();
+      if(state === 'over') startGame();
+      else flap();
+    } else if(e.code === 'KeyM'){
+      toggleMute();
+    } else if(e.code === 'Enter'){
+      if(state === 'ready' || state === 'over') startGame();
+    }
+  });
+
+  // ---------- Init ----------
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

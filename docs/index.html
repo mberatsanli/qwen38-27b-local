@@ -1,0 +1,49 @@
+<!doctype html><meta charset=utf-8>
+<title>Qwen3.8-27B one-shot output</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#faf9f7;--fg:#3d3a35;--ink:#1a1815;--mute:#6b665e;--card:#fff;--rule:#e2ded7;--accent:#a85c32}
+@media(prefers-color-scheme:dark){:root{--bg:#14130f;--fg:#c9c3b8;--ink:#f2efe9;--mute:#948d81;--card:#1c1a16;--rule:#2b2822;--accent:#d4885a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.w{max-width:760px;margin:0 auto;padding:56px 24px 80px}
+h1{font-size:1.75rem;color:var(--ink);margin:0 0 10px;letter-spacing:-.02em}
+p.lede{color:var(--mute);margin:0 0 8px}
+p.note{color:var(--mute);font-size:.9rem;margin:0 0 34px}
+h2{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin:34px 0 12px;font-weight:600}
+a.card{display:block;padding:15px 18px;margin-bottom:9px;background:var(--card);border:1px solid var(--rule);
+border-radius:5px;color:var(--accent);text-decoration:none}
+a.card:hover{border-color:var(--accent)}
+b{display:block;color:var(--ink);font-size:1.02rem;margin-bottom:2px;font-weight:600}
+small{color:var(--mute)}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.86em}
+footer{margin-top:40px;padding-top:22px;border-top:1px solid var(--rule);color:var(--mute);font-size:.88rem}
+footer a{color:var(--accent)}
+</style>
+<div class=w>
+<h1>Qwen3.8-27B, one shot each</h1>
+<p class=lede>A 27B model quantised to 3 bits, on one RTX 5080 with 16 GB. Every file below
+came back from a single request with no follow-up message, and nothing was fixed by hand.</p>
+<p class=note>Two runs of the same five prompts at the same seed, differing only in the KV
+cache data type. Several of these are broken. That is the point.</p>
+
+<h2>Start here</h2>
+<a class=card href="gallery.html"><b>The gallery</b><small>everything on one page, running, with the bugs found in each listed underneath</small></a>
+
+<h2>4-bit KV cache</h2>
+<a class=card href="flappy__q4-0-kv-daily-profile__s42.html"><b>Flappy Bird</b><small>playable &middot; space or click &middot; the first gap is close to impossible</small></a>
+<a class=card href="solar__q4-0-kv-daily-profile__s42.html"><b>Solar system</b><small>runs &middot; hover a planet &middot; the eight orbital periods are correct to 3 decimals</small></a>
+<a class=card href="mandelbrot__q4-0-kv-daily-profile__s42.html"><b>Mandelbrot</b><small>black screen &middot; a <code>const</code> is read three lines before it is declared</small></a>
+<a class=card href="heptagon__q4-0-kv-daily-profile__s42.html"><b>Spinning heptagon</b><small>no simulation &middot; 153 constant declarations, then it ran out of tokens</small></a>
+<a class=card href="pelican__q4-0-kv-daily-profile__s42.svg"><b>Pelican on a bicycle</b><small>legs leave the frame &middot; one leg endpoint uses <code>cy</code>, which <code>&lt;line&gt;</code> does not have</small></a>
+
+<h2>16-bit KV cache, same seed</h2>
+<a class=card href="flappy__f16-kv-control__s42.html"><b>Flappy Bird</b><small>playable &middot; hitting the ground softlocks it</small></a>
+<a class=card href="solar__f16-kv-control__s42.html"><b>Solar system</b><small>runs</small></a>
+<a class=card href="mandelbrot__f16-kv-control__s42.html"><b>Mandelbrot</b><small>blank &middot; a duplicate <code>const</code> in one scope</small></a>
+<a class=card href="heptagon__f16-kv-control__s42.html"><b>Spinning heptagon</b><small>a complete simulation in 3,775 tokens</small></a>
+<a class=card href="pelican__f16-kv-control__s42.svg"><b>Pelican on a bicycle</b><small>legs reach the pedals</small></a>
+
+<footer>Prompts, timings, defect lists and the measurements behind all of this are in
+<a href="https://github.com/mberatsanli/qwen38-27b-local">the repo</a>.</footer>
+</div>

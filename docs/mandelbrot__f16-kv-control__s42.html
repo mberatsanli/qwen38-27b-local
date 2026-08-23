@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mandelbrot — Escape-Time Explorer</title>
+<style>
+  :root{
+    --bg:#05070d;
+    --ink:#eef2fb;
+    --muted:#8b95ad;
+    --line:rgba(255,255,255,.09);
+    --accent:#5fe0c8;
+    --accent2:#ff8a5c;
+    --panel:rgba(11,15,26,.72);
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- stage ---------- */
+  #stage{
+    position:fixed;
+    inset:0;
+    overflow:hidden;
+    background:
+      radial-gradient(120% 90% at 50% 42%, #0a1020 0%, #05070d 62%, #03040a 100%);
+  }
+  #stage::before{
+    content:"";
+    position:absolute;
+    inset:-25%;
+    background:
+      radial-gradient(38% 38% at 28% 30%, rgba(95,224,200,.10), transparent 70%),
+      radial-gradient(42% 42% at 74% 72%, rgba(255,138,92,.09), transparent 70%);
+    filter:blur(30px);
+    animation:drift 26s ease-in-out infinite alternate;
+    pointer-events:none;
+  }
+  @keyframes drift{
+    0%{transform:translate3d(-2%,-1%,0) scale(1)}
+    100%{transform:translate3d(3%,2%,0) scale(1.08)}
+  }
+  #stage::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:
+      linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px) 0 0/100% 46px,
+      linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px) 0 0/46px 100%;
+    opacity:.5;
+    pointer-events:none;
+    mask:radial-gradient(120% 120% at 50% 50%, transparent 55%, #000 100%);
+  }
+
+  canvas#fractal{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    display:block;
+    cursor:crosshair;
+    z-index:1;
+  }
+
+  /* ---------- HUD ---------- */
+  .hud{
+    position:absolute;
+    z-index:5;
+    pointer-events:none;
+    opacity:0;
+    transform:translateY(10px);
+    transition:opacity .7s ease, transform .7s ease;
+  }
+  body.ready .hud{opacity:1;transform:none}
+  .hud .panel{
+    pointer-events:auto;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    backdrop-filter:blur(14px) saturate(1.2);
+    -webkit-backdrop-filter:blur(14px) saturate(1.2);
+    box-shadow:0 18px 50px -20px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+
+  /* brand */
+  .brand{top:22px;left:22px;max-width:min(46vw,420px)}
+  .brand .panel{padding:16px 18px 15px}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.34em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 6px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .eyebrow::before{
+    content:"";width:7px;height:7px;border-radius:50%;
+    background:var(--accent);
+    box-shadow:0 0 12px var(--accent);
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.5;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+  h1{
+    margin:0;
+    font-size:clamp(26px,4.4vw,44px);
+    line-height:.98;
+    font-weight:800;
+    letter-spacing:-.02em;
+  }
+  h1 .thin{font-weight:300;color:var(--muted)}
+  .formula{
+    margin-top:10px;
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--ink);
+    opacity:.85;
+    letter-spacing:.02em;
+  }
+  .formula b{color:var(--accent2);font-weight:600}
+  .hint{
+    margin-top:12px;
+    font-size:12.5px;
+    color:var(--muted);
+    line-height:1.5;
+  }
+  .hint kbd{
+    font-family:var(--mono);
+    font-size:11px;
+    background:rgba(255,255,255,.06);
+    border:1px solid var(--line);
+    border-bottom-width:2px;
+    border-radius:5px;
+    padding:1px 6px;
+    color:var(--ink);
+  }
+
+  /* readout */
+  .readout{top:22px;right:22px;width:236px}
+  .readout .panel{padding:14px 16px 15px}
+  .ro-head{
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:var(--mono);font-size:10px;letter-spacing:.28em;
+    text-transform:uppercase;color:var(--muted);
+    margin-bottom:12px;
+  }
+  .ro-head .live{color:var(--accent);display:flex;align-items:center;gap:6px}
+  .ro-head .live::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 1.6s infinite}
+  .ro-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+  .ro-cell{display:flex;flex-direction:column;gap:2px}
+  .ro-cell .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .ro-cell .v{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ro-cell .v small{font-size:10px;color:var(--muted);font-weight:400}
+  .ro-cell.wide{grid-column:1 / -1}
+  .ro-cell.wide .v{font-size:13px;color:var(--accent)}
+
+  /* controls */
+  .controls{bottom:22px;left:22px;width:288px}
+  .controls .panel{padding:16px 16px 15px}
+  .ctl-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+  .ctl-row:last-child{margin-bottom:0}
+  .ctl-label{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .ctl-val{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:4px;border-radius:4px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);
+    box-shadow:0 0 10px rgba(95,224,200,.6);
+    transition:transform .15s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);
+    box-shadow:0 0 10px rgba(95,224,200,.6);
+  }
+  .btns{display:flex;gap:8px;margin-top:14px}
+  button{
+    flex:1;
+    font-family:var(--mono);
+    font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink);
+    background:rgba(255,255,255,.05);
+    border:1px solid var(--line);
+    border-radius:9px;
+    padding:9px 10px;
+    cursor:pointer;
+    transition:all .18s ease;
+  }
+  button:hover{background:rgba(95,224,200,.14);border-color:var(--accent);color:#fff;transform:translateY(-1px)}
+  button:active{transform:translateY(0)}
+  button.primary{background:linear-gradient(180deg,rgba(95,224,200,.22),rgba(95,224,200,.1));border-color:var(--accent)}
+
+  /* crosshair */
+  .cross{
+    position:absolute;z-index:4;pointer-events:none;
+    width:26px;height:26px;
+    transform:translate(-50%,-50%);
+    opacity:0;transition:opacity .2s ease;
+    mix-blend-mode:screen;
+  }
+  .cross.on{opacity:.9}
+  .cross::before,.cross::after{
+    content:"";position:absolute;background:var(--accent);
+    box-shadow:0 0 8px var(--accent);
+  }
+  .cross::before{left:50%;top:0;width:1px;height:100%;transform:translateX(-50%)}
+  .cross::after{top:50%;left:0;height:1px;width:100%;transform:translateY(-50%)}
+  .cross .ring{
+    position:absolute;inset:6px;border:1px solid var(--accent);border-radius:50%;
+    box-shadow:0 0 10px rgba(95,224,200,.5);
+  }
+
+  /* toast */
+  .toast{
+    position:absolute;z-index:6;left:50%;bottom:26px;
+    transform:translate(-50%,20px);
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:9px 16px;
+    font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+    color:var(--ink);
+    backdrop-filter:blur(10px);
+    opacity:0;pointer-events:none;
+    transition:opacity .3s ease, transform .3s ease;
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast b{color:var(--accent)}
+
+  @media (max-width:720px){
+    .brand{max-width:60vw}
+    .readout{width:180px}
+    .ro-grid{grid-template-columns:1fr 1fr}
+    .controls{width:calc(100vw - 44px)}
+    .hint{display:none}
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="fractal"></canvas>
+
+    <div class="hud brand">
+      <div class="panel">
+        <p class="eyebrow">Escape-Time Explorer</p>
+        <h1>Mandelbrot<span class="thin"> set</span></h1>
+        <div class="formula">z<sub>n+1</sub> = z<sub>n</sub><sup>2</sup> + <b>c</b></div>
+        <p class="hint">
+          <kbd>click</kbd> to dive in &nbsp;·&nbsp; <kbd>shift</kbd>+<kbd>click</kbd> to pull back &nbsp;·&nbsp; <kbd>scroll</kbd> to zoom &nbsp;·&nbsp; <kbd>drag</kbd> to pan
+        </p>
+      </div>
+    </div>
+
+    <div class="hud readout">
+      <div class="panel">
+        <div class="ro-head"><span>Viewport</span><span class="live">live</span></div>
+        <div class="ro-grid">
+          <div class="ro-cell"><span class="k">Center Re</span><span class="v" id="ro-re">—</span></div>
+          <div class="ro-cell"><span class="k">Center Im</span><span class="v" id="ro-im">—</span></div>
+          <div class="ro-cell wide"><span class="k">Span</span><span class="v" id="ro-span">—</span></div>
+          <div class="ro-cell"><span class="k">Iterations</span><span class="v" id="ro-iter">—</span></div>
+          <div class="ro-cell"><span class="k">Render</span><span class="v" id="ro-time">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud controls">
+      <div class="panel">
+        <div class="ctl-row">
+          <span class="ctl-label">Max Iterations</span>
+          <span class="ctl-val" id="iter-val">1200</span>
+        </div>
+        <input type="range" id="iter" min="200" max="4000" step="50" value="1200">
+        <div class="ctl-row" style="margin-top:14px">
+          <span class="ctl-label">Palette</span>
+          <span class="ctl-val" id="pal-val">Aurora</span>
+        </div>
+        <input type="range" id="pal" min="0" max="100" step="1" value="0">
+        <div class="btns">
+          <button id="reset">Reset View</button>
+          <button id="save" class="primary">Save PNG</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cross" id="cross"><span class="ring"></span></div>
+    <div class="toast" id="toast"></div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  const canvas = document.getElementById('fractal');
+  const ctx = canvas.getContext('2d', { alpha:false });
+  const stage = document.getElementById('stage');
+  const cross = document.getElementById('cross');
+  const toast = document.getElementById('toast');
+
+  const roRe   = document.getElementById('ro-re');
+  const roIm   = document.getElementById('ro-im');
+  const roSpan = document.getElementById('ro-span');
+  const roIter = document.getElementById('ro-iter');
+  const roTime = document.getElementById('ro-time');
+
+  const iterEl  = document.getElementById('iter');
+  const iterVal = document.getElementById('iter-val');
+  const palEl   = document.getElementById('pal');
+  const palVal  = document.getElementById('pal-val');
+
+  // ---------- state ----------
+  let W = 0, H = 0, dpr = 1;
+  let cx = -0.5, cy = 0;          // complex center
+  let scale = 3.5;                // complex units across the width
+  let maxIter = 1200;
+  let palIndex = 0;
+
+  const HOME = { cx:-0.5, cy:0, scale:3.5 };
+  const MIN_SCALE = 1e-15;
+  const MAX_SCALE = 12;
+
+  // ---------- palettes ----------
+  // Each palette is a list of [pos, r, g, b] stops.
+  const PALETTES = [
+    { name:"Aurora", stops:[
+      [0.00,  6,  8, 24],[0.18, 12, 46, 74],[0.34, 24,120,120],
+      [0.50, 96,224,200],[0.66,255,214,150],[0.82,255,138, 92],[1.00, 255, 244, 236]
+    ]},
+    { name:"Ember", stops:[
+      [0.00,  8,  4, 10],[0.22, 46, 12, 18],[0.42,120, 34, 22],
+      [0.60,214, 92, 34],[0.78,255,178, 74],[0.90,255,224,150],[1.00,255,250,236]
+    ]},
+    { name:"Glacier", stops:[
+      [0.00,  4,  8, 20],[0.24, 12, 40, 78],[0.44, 34, 92,150],
+      [0.62, 92,168,224],[0.80,178,224,255],[0.92,224,244,255],[1.00,255,255,255]
+    ]},
+    { name:"Spectrum", stops:[
+      [0.00,  8,  8, 24],[0.16, 40, 20,120],[0.32, 20, 90,180],
+      [0.48, 20,180,150],[0.64, 200,220, 60],[0.80,255,150, 40],[0.92,255, 60, 60],[1.00,255,255,255]
+    ]},
+    { name:"Mono", stops:[
+      [0.00,  4,  4,  6],[0.30, 40, 40, 46],[0.55,110,110,120],
+      [0.78,190,190,200],[0.92,236,236,244],[1.00,255,255,255]
+    ]}
+  ];
+
+  const LUT_SIZE = 2048;
+  let lut = new Uint8ClampedArray(LUT_SIZE * 3);
+
+  function buildLUT(pal){
+    const stops = pal.stops;
+    for(let i=0;i<LUT_SIZE;i++){
+      const t = i/(LUT_SIZE-1);
+      // find segment
+      let s = 0;
+      while(s < stops.length-2 && t > stops[s+1][0]) s++;
+      const a = stops[s], b = stops[s+1];
+      let f = (t - a[0]) / (b[0] - a[0] || 1);
+      f = Math.max(0, Math.min(1, f));
+      lut[i*3+0] = a[1] + (b[1]-a[1])*f;
+      lut[i*3+1] = a[2] + (b[2]-a[2])*f;
+      lut[i*3+2] = a[3] + (b[3]-a[3])*f;
+    }
+  }
+
+  // ---------- rendering ----------
+  let rafPending = false;
+  function scheduleRender(){
+    if(rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(()=>{ rafPending = false; render(); });
+  }
+
+  function render(){
+    const t0 = performance.now();
+    const img = ctx.createImageData(W, H);
+    const data = img.data;
+    const data32 = new Uint32Array(data.buffer);
+
+    const invW = 1/W, invH = 1/H;
+    const x0 = cx - scale/2;
+    const y0 = cy - (scale*H/W)/2;
+    const dx = scale*invW;
+    const dy = (scale*H/W)*invH;
+
+    const maxIt = maxIter;
+    const L = lut;
+    const LUTN = LUT_SIZE;
+
+    let p = 0;
+    for(let py=0; py<H; py++){
+      const ci = y0 + py*dy;
+      for(let px=0; px<W; px++){
+        const cr = x0 + px*dx;
+        let zr = 0, zi = 0, zr2 = 0, zi2 = 0;
+        let n = 0;
+        while(zr2 + zi2 <= 4 && n < maxIt){
+          zi = 2*zr*zi + ci;
+          zr = zr2 - zi2 + cr;
+          zr2 = zr*zr;
+          zi2 = zi*zi;
+          n++;
+        }
+        let r,g,b;
+        if(n >= maxIt){
+          r = 4; g = 5; b = 12;
+        } else {
+          // smooth iteration count
+          const log_zn = Math.log(zr2 + zi2);
+          const nu = Math.log(log_zn / 2);
+          const smooth = n + 1 - nu;
+          // map smooth value to a repeating band with a gentle fade
+          const band = 24;
+          const tt = (smooth / band) % 1;
+          const idx = (tt * (LUTN-1)) | 0;
+          r = L[idx*3+0]; g = L[idx*3+1]; b = L[idx*3+2];
+        }
+        data32[p++] = (255<<24) | (b<<16) | (g<<8) | r;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+
+    const ms = performance.now() - t0;
+    roTime.textContent = ms.toFixed(0) + " ms";
+    updateReadout();
+  }
+
+  function fmt(v){
+    const a = Math.abs(v);
+    if(a >= 1e4 || (a < 1e-3 && a > 0)) return v.toExponential(2);
+    return v.toFixed(6);
+  }
+
+  function updateReadout(){
+    roRe.textContent = fmt(cx);
+    roIm.textContent = fmt(cy);
+    roSpan.textContent = fmt(scale);
+    roIter.textContent = maxIter;
+  }
+
+  // ---------- sizing ----------
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = stage.getBoundingClientRect();
+    W = Math.max(1, Math.round(rect.width * dpr));
+    H = Math.max(1, Math.round(rect.height * dpr));
+    canvas.width = W;
+    canvas.height = H;
+    scheduleRender();
+  }
+
+  // ---------- interaction ----------
+  function complexFromClient(clientX, clientY){
+    const rect = canvas.getBoundingClientRect();
+    const px = (clientX - rect.left) * dpr;
+    const py = (clientY - rect.top) * dpr;
+    const x0 = cx - scale/2;
+    const y0 = cy - (scale*H/W)/2;
+    return {
+      re: x0 + px * (scale/W),
+      im: y0 + py * ((scale*H/W)/H)
+    };
+  }
+
+  function zoomAt(clientX, clientY, factor){
+    const before = complexFromClient(clientX, clientY);
+    scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor));
+    const after = complexFromClient(clientX, clientY);
+    cx += before.re - after.re;
+    cy += before.im - after.im;
+    scheduleRender();
+  }
+
+  let dragging = false;
+  let dragStart = null;
+  let moved = false;
+
+  canvas.addEventListener('mousedown', (e)=>{
+    dragging = true;
+    moved = false;
+    dragStart = { x:e.clientX, y:e.clientY, cx, cy };
+  });
+
+  window.addEventListener('mousemove', (e)=>{
+    // crosshair
+    const rect = canvas.getBoundingClientRect();
+    if(e.clientX >= rect.left && e.clientX <= rect.right &&
+       e.clientY >= rect.top && e.clientY <= rect.bottom){
+      cross.style.left = (e.clientX - rect.left) + "px";
+      cross.style.top  = (e.clientY - rect.top) + "px";
+      cross.classList.add('on');
+    } else {
+      cross.classList.remove('on');
+    }
+
+    if(!dragging) return;
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    if(Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+    const rect = canvas.getBoundingClientRect();
+    const dprx = dpr;
+    cx = dragStart.cx - dx * dprx * (scale/W);
+    cy = dragStart.cy - dy * dprx * ((scale*H/W)/H);
+    scheduleRender();
+  });
+
+  window.addEventListener('mouseup', (e)=>{
+    if(!dragging) return;
+    dragging = false;
+    if(!moved){
+      // treat as a click
+      if(e.shiftKey){
+        zoomAt(e.clientX, e.clientY, 1/2.2);
+        flash("Zoom out");
+      } else {
+        zoomAt(e.clientX, e.clientY, 2.2);
+        flash("Zoom in");
+      }
+    }
+  });
+
+  canvas.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.18 : 1/1.18;
+    zoomAt(e.clientX, e.clientY, factor);
+  }, { passive:false });
+
+  // touch: pinch + pan
+  let touchState = null;
+  canvas.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 1){
+      touchState = { mode:'pan', x:e.touches[0].clientX, y:e.touches[0].clientY, cx, cy };
+    } else if(e.touches.length === 2){
+      const [a,b] = e.touches;
+      touchState = { mode:'pinch', dist:Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY),
+                     cx, cy, mx:(a.clientX+b.clientX)/2, my:(a.clientY+b.clientY)/2 };
+    }
+  }, { passive:true });
+
+  canvas.addEventListener('touchmove', (e)=>{
+    e.preventDefault();
+    if(!touchState) return;
+    if(touchState.mode === 'pan' && e.touches.length === 1){
+      const t = e.touches[0];
+      cx = touchState.cx - (t.clientX - touchState.x) * dpr * (scale/W);
+      cy = touchState.cy - (t.clientY - touchState.y) * dpr * ((scale*H/W)/H);
+      scheduleRender();
+    } else if(touchState.mode === 'pinch' && e.touches.length === 2){
+      const [a,b] = e.touches;
+      const d = Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+      const factor = touchState.dist / d;
+      const mx = (a.clientX+b.clientX)/2, my = (a.clientY+b.clientY)/2;
+      const before = complexFromClient(mx, my);
+      scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor));
+      const after = complexFromClient(mx, my);
+      cx += before.re - after.re;
+      cy += before.im - after.im;
+      scheduleRender();
+    }
+  }, { passive:false });
+
+  canvas.addEventListener('touchend', (e)=>{
+    if(e.touches.length === 0) touchState = null;
+  });
+
+  // ---------- controls ----------
+  iterEl.addEventListener('input', ()=>{
+    maxIter = +iterEl.value;
+    iterVal.textContent = maxIter;
+    scheduleRender();
+  });
+
+  palEl.addEventListener('input', ()=>{
+    palIndex = Math.round((+palEl.value/100) * (PALETTES.length-1));
+    palVal.textContent = PALETTES[palIndex].name;
+    buildLUT(PALETTES[palIndex]);
+    scheduleRender();
+  });
+
+  document.getElementById('reset').addEventListener('click', ()=>{
+    cx = HOME.cx; cy = HOME.cy; scale = HOME.scale;
+    scheduleRender();
+    flash("Reset");
+  });
+
+  document.getElementById('save').addEventListener('click', ()=>{
+    const a = document.createElement('a');
+    a.download = "mandelbrot.png";
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+    flash("Saved PNG");
+  });
+
+  window.addEventListener('keydown', (e)=>{
+    if(e.key === 'r' || e.key === 'R'){ cx=HOME.cx; cy=HOME.cy; scale=HOME.scale; scheduleRender(); }
+    if(e.key === '+' || e.key === '='){ zoomAt(stage.clientWidth/2, stage.clientHeight/2, 1.5); }
+    if(e.key === '-' || e.key === '_'){ zoomAt(stage.clientWidth/2, stage.clientHeight/2, 1/1.5); }
+  });
+
+  // ---------- toast ----------
+  let toastTimer;
+  function flash(msg){
+    toast.innerHTML = "<b>›</b> " + msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>toast.classList.remove('show'), 1100);
+  }
+
+  // ---------- boot ----------
+  buildLUT(PALETTES[0]);
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(()=>document.body.classList.add('ready'));
+})();
+</script>
+</body>
+</html>

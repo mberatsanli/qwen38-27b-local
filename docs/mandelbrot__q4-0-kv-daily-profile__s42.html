@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mandelbrot — Escape-Time Explorer</title>
+<style>
+  :root{
+    --bg:#05070d;
+    --ink:#eef2fb;
+    --muted:#8b95ad;
+    --line:rgba(255,255,255,.09);
+    --accent:#57e0c6;
+    --accent2:#ff8a5c;
+    --panel:rgba(9,13,22,.72);
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  #stage{position:fixed;inset:0}
+  #c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+
+  /* ---------- overlays ---------- */
+  .overlay{position:absolute;pointer-events:none}
+  .overlay > *{pointer-events:auto}
+
+  /* ---------- brand ---------- */
+  .brand{top:22px;left:24px;max-width:min(46vw,520px)}
+  .kicker{
+    font-family:var(--mono);font-size:11px;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 10px;opacity:.9;
+  }
+  .title{
+    margin:0;font-weight:800;line-height:.92;letter-spacing:-.02em;
+    font-size:clamp(34px,6.4vw,66px);
+    text-shadow:0 2px 30px rgba(0,0,0,.6);
+  }
+  .title .z{color:var(--accent2)}
+  .sub{
+    margin:12px 0 0;font-size:14px;line-height:1.5;color:var(--muted);
+    max-width:34ch;text-shadow:0 1px 12px rgba(0,0,0,.7);
+  }
+
+  /* ---------- readout ---------- */
+  .readout{top:22px;right:24px;text-align:right;font-family:var(--mono)}
+  .readout .row{display:flex;justify-content:flex-end;gap:10px;align-items:baseline;margin-bottom:6px}
+  .readout .k{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  .readout .v{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .readout .v.big{font-size:22px;color:var(--accent)}
+  .readout .v .u{color:var(--muted);font-size:12px}
+
+  /* ---------- panel ---------- */
+  .panel{
+    left:24px;bottom:24px;width:300px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    backdrop-filter:blur(14px) saturate(1.2);
+    -webkit-backdrop-filter:blur(14px) saturate(1.2);
+    padding:16px 16px 14px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .panel h2{
+    margin:0 0 12px;font-family:var(--mono);font-size:11px;letter-spacing:.28em;
+    text-transform:uppercase;color:var(--muted);font-weight:600;
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel h2::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .ctrl{margin-bottom:14px}
+  .ctrl .lab{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .ctrl .lab span:first-child{font-size:12px;color:var(--ink);letter-spacing:.02em}
+  .ctrl .lab .val{font-family:var(--mono);font-size:12px;color:var(--accent);font-variant-numeric:tabular-nums}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:4px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid var(--bg);box-shadow:0 0 0 1px var(--line),0 2px 8px rgba(0,0,0,.5);
+    transition:transform .12s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.18)}
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--bg);
+    box-shadow:0 0 0 1px var(--line);cursor:pointer;
+  }
+
+  .swatches{display:flex;gap:8px;margin-bottom:14px}
+  .sw{
+    flex:1;height:34px;border-radius:8px;border:1px solid var(--line);cursor:pointer;
+    position:relative;overflow:hidden;transition:transform .14s ease,box-shadow .14s ease;
+  }
+  .sw:hover{transform:translateY(-2px)}
+  .sw.active{box-shadow:0 0 0 2px var(--accent),0 6px 18px rgba(0,0,0,.4)}
+  .sw.active::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(135deg,transparent 40%,rgba(255,255,255,.35) 50%,transparent 60%);
+    animation:sheen 2.4s ease-in-out infinite;
+  }
+  @keyframes sheen{0%{transform:translateX(-120%)}60%,100%{transform:translateX(120%)}}
+
+  .btns{display:flex;gap:8px}
+  .btn{
+    flex:1;font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+    padding:9px 8px;border-radius:9px;border:1px solid var(--line);
+    background:rgba(255,255,255,.03);color:var(--ink);cursor:pointer;
+    transition:all .14s ease;
+  }
+  .btn:hover{background:rgba(255,255,255,.09);border-color:var(--accent);color:#fff;transform:translateY(-1px)}
+  .btn:active{transform:translateY(0)}
+
+  /* ---------- hint ---------- */
+  .hint{
+    bottom:24px;right:24px;font-family:var(--mono);font-size:11px;color:var(--muted);
+    display:flex;gap:14px;align-items:center;
+  }
+  .hint b{color:var(--ink);font-weight:600}
+  .hint .dot{width:4px;height:4px;border-radius:50%;background:var(--muted);opacity:.6}
+
+  /* ---------- crosshair ---------- */
+  .cross{position:absolute;width:26px;height:26px;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .18s ease}
+  .cross::before,.cross::after{content:"";position:absolute;background:rgba(255,255,255,.55)}
+  .cross::before{left:50%;top:0;width:1px;height:100%;transform:translateX(-50%)}
+  .cross::after{top:50%;left:0;height:1px;width:100%;transform:translateY(-50%)}
+  .cross .ring{position:absolute;inset:0;border:1px solid rgba(87,224,198,.7);border-radius:50%}
+  .cross .tag{
+    position:absolute;left:50%;top:100%;transform:translate(-50%,8px);white-space:nowrap;
+    font-family:var(--mono);font-size:10px;color:var(--accent);
+    background:rgba(5,7,13,.8);padding:3px 7px;border-radius:6px;border:1px solid var(--line);
+  }
+
+  /* ---------- zoom flash ---------- */
+  .flash{
+    position:absolute;width:120px;height:120px;transform:translate(-50%,-50%);
+    border:1px solid var(--accent);border-radius:50%;pointer-events:none;
+    animation:flash .55s ease-out forwards;
+  }
+  @keyframes flash{
+    0%{opacity:.9;transform:translate(-50%,-50%) scale(.35)}
+    100%{opacity:0;transform:translate(-50%,-50%) scale(1.6)}
+  }
+
+  /* ---------- intro ---------- */
+  .brand,.readout,.panel,.hint{opacity:0;transform:translateY(10px);transition:opacity .7s ease,transform .7s ease}
+  body.ready .brand{opacity:1;transform:none;transition-delay:.05s}
+  body.ready .readout{opacity:1;transform:none;transition-delay:.15s}
+  body.ready .panel{opacity:1;transform:none;transition-delay:.25s}
+  body.ready .hint{opacity:1;transform:none;transition-delay:.35s}
+
+  @media (max-width:640px){
+    .sub{display:none}
+    .panel{width:calc(100% - 48px)}
+    .hint{display:none}
+    .readout .v.big{font-size:18px}
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="c"></canvas>
+
+    <div class="overlay brand">
+      <p class="kicker">Escape-Time · z ← z² + c</p>
+      <h1 class="title">MANDELBROT<span class="z">.</span></h1>
+      <p class="sub">An infinite coastline of complex numbers. Dive into the fractal — every zoom reveals new structure.</p>
+    </div>
+
+    <div class="overlay readout">
+      <div class="row"><span class="k">Center</span><span class="v" id="coord">−0.500000 + 0.000000 i</span></div>
+      <div class="row"><span class="k">Span</span><span class="v" id="span">2.5000</span></div>
+      <div class="row"><span class="k">Depth</span><span class="v big" id="depth">1.00×</span></div>
+    </div>
+
+    <div class="overlay panel">
+      <h2>Controls</h2>
+      <div class="ctrl">
+        <div class="lab"><span>Max iterations</span><span class="val" id="iterVal">250</span></div>
+        <input type="range" id="iter" min="60" max="2000" step="10" value="250">
+      </div>
+      <div class="ctrl">
+        <div class="lab"><span>Color cycle</span><span class="val" id="cycleVal">1.00</span></div>
+        <input type="range" id="cycle" min="0.2" max="4" step="0.05" value="1">
+      </div>
+      <div class="swatches" id="swatches"></div>
+      <div class="btns">
+        <button class="btn" id="reset">Reset view</button>
+        <button class="btn" id="save">Save PNG</button>
+      </div>
+    </div>
+
+    <div class="overlay hint">
+      <span><b>Click</b> zoom in</span><span class="dot"></span>
+      <span><b>Shift+Click</b> zoom out</span><span class="dot"></span>
+      <span><b>Drag</b> pan</span>
+    </div>
+
+    <div class="cross" id="cross"><span class="ring"></span><span class="tag" id="crossTag"></span></div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+
+  // ---------- view state ----------
+  const HOME = { cx:-0.5, cy:0, span:2.5 };
+  let view = { ...HOME };
+  let W = 0, H = 0, DPR = 1;
+
+  // ---------- params ----------
+  let maxIter = 250;
+  let cycle = 1.0;
+  let palette = palettes[0];
+
+  // ---------- palettes ----------
+  const palettes = [
+    { name:'Abyss', stops:[[0,0.02,0.05,0.12],[0.18,0.05,0.22,0.42],[0.36,0.02,0.42,0.55],[0.52,0.05,0.62,0.62],[0.66,0.12,0.82,0.72],[0.8,0.55,0.95,0.85],[0.9,0.95,0.85,0.95],[1,1,1,1]] },
+    { name:'Ember', stops:[[0,0.05,0.02,0.02],[0.2,0.35,0.05,0.05],[0.4,0.85,0.25,0.05],[0.55,1,0.55,0.1],[0.7,1,0.85,0.4],[0.85,1,0.98,0.85],[1,1,1,1]] },
+    { name:'Glacier', stops:[[0,0.02,0.05,0.12],[0.25,0.05,0.2,0.4],[0.45,0.1,0.45,0.7],[0.6,0.3,0.7,0.95],[0.75,0.6,0.9,1],[0.9,0.85,0.98,1],[1,1,1,1]] },
+    { name:'Spectrum', stops:[[0,0,0,0],[0.17,0,0,1],[0.33,0,1,1],[0.5,0,1,0],[0.67,1,1,0],[0.83,1,0,0],[1,1,0,1]] }
+  ];
+
+  // ---------- color LUT ----------
+  const LUT_N = 2048;
+  let lut = new Uint8ClampedArray(LUT_N * 3);
+  function buildLUT(pal){
+    const s = pal.stops;
+    for(let i=0;i<LUT_N;i++){
+      const t = i/(LUT_N-1);
+      let a = s[0], b = s[s.length-1];
+      for(let k=0;k<s.length-1;k++){
+        if(t>=s[k][0] && t<=s[k+1][0]){ a=s[k]; b=s[k+1]; break; }
+      }
+      const span = (b[0]-a[0]) || 1;
+      const f = (t-a[0])/span;
+      lut[i*3]   = a[1]+(b[1]-a[1])*f;
+      lut[i*3+1] = a[2]+(b[2]-a[2])*f;
+      lut[i*3+2] = a[3]+(b[3]-a[3])*f;
+    }
+  }
+  buildLUT(palette);
+
+  // ---------- rendering ----------
+  let img = null;
+  let data = null;
+  let renderToken = 0;
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W*DPR);
+    canvas.height = Math.floor(H*DPR);
+    canvas.style.width = W+'px';
+    canvas.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    img = ctx.createImageData(W,H);
+    data = img.data;
+    scheduleRender();
+  }
+
+  function render(){
+    const token = ++renderToken;
+    const w = W, h = H;
+    const cx = view.cx, cy = view.cy;
+    const scale = view.span / w;
+    const x0 = cx - (w/2)*scale;
+    const y0 = cy - (h/2)*scale;
+    const maxIt = maxIter;
+    const cyc = cycle;
+    const L = lut;
+    const d = data;
+    const N = LUT_N;
+
+    for(let py=0; py<h; py++){
+      const ci = cy + (py - h/2)*scale;
+      const ci2 = ci*ci;
+      let row = (py*w)*4;
+      for(let px=0; px<w; px++){
+        const cr = x0 + px*scale;
+        const cr2 = cr*cr;
+        let zr = 0, zi = 0, zr2 = 0, zi2 = 0, it = 0;
+        while(zr2+zi2 <= 4 && it < maxIt){
+          zi = 2*zr*zi + ci;
+          zr = zr2 - zi2 + cr;
+          zr2 = zr*zr; zi2 = zi*zi;
+          it++;
+        }
+        let idx;
+        if(it >= maxIt){
+          idx = 0;
+        } else {
+          const nu = Math.log(zr2+zi2)/2;
+          const v = it + 1 - Math.log(nu)/Math.LN2;
+          let t = (v*cyc) % 1;
+          if(t < 0) t += 1;
+          idx = (t*N)|0;
+          if(idx >= N) idx = N-1;
+        }
+        const o = row + px*4;
+        d[o]   = L[idx*3];
+        d[o+1] = L[idx*3+1];
+        d[o+2] = L[idx*3+2];
+        d[o+3] = 255;
+      }
+    }
+    if(token === renderToken){
+      ctx.putImageData(img,0,0);
+      updateReadout();
+    }
+  }
+
+  let rafPending = false;
+  function scheduleRender(){
+    if(rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(()=>{ rafPending = false; render(); });
+  }
+
+  // ---------- readout ----------
+  const elCoord = document.getElementById('coord');
+  const elSpan  = document.getElementById('span');
+  const elDepth = document.getElementById('depth');
+  function fmt(n){ return (n<0?'−':'')+Math.abs(n).toFixed(6); }
+  function updateReadout(){
+    elCoord.textContent = fmt(view.cx)+' + '+fmt(view.cy)+' i';
+    elSpan.textContent = view.span.toFixed(4);
+    const depth = HOME.span / view.span;
+    elDepth.textContent = depth>=1000 ? depth.toExponential(2)+'×' : depth.toFixed(2)+'×';
+  }
+
+  // ---------- interaction ----------
+  let dragging = false, moved = false, lastX = 0, lastY = 0;
+  const cross = document.getElementById('cross');
+  const crossTag = document.getElementById('crossTag');
+
+  function screenToComplex(sx, sy){
+    const scale = view.span / W;
+    return {
+      cr: view.cx + (sx - W/2)*scale,
+      ci: view.cy + (sy - H/2)*scale
+    };
+  }
+
+  canvas.addEventListener('mousedown', e=>{
+    dragging = true; moved = false;
+    lastX = e.clientX; lastY = e.clientY;
+  });
+
+  window.addEventListener('mousemove', e=>{
+    const sx = e.clientX, sy = e.clientY;
+    // crosshair
+    cross.style.left = sx+'px';
+    cross.style.top = sy+'px';
+    cross.style.opacity = '1';
+    const p = screenToComplex(sx, sy);
+    crossTag.textContent = fmt(p.cr)+' + '+fmt(p.ci)+' i';
+
+    if(dragging){
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if(Math.abs(dx)+Math.abs(dy) > 3) moved = true;
+      const scale = view.span / W;
+      view.cx -= dx*scale;
+      view.cy -= dy*scale;
+      lastX = e.clientX; lastY = e.clientY;
+      scheduleRender();
+    }
+  });
+
+  window.addEventListener('mouseup', e=>{
+    if(!dragging) return;
+    dragging = false;
+    if(moved) return; // was a drag, not a click
+    // click / shift-click zoom
+    const sx = e.clientX, sy = e.clientY;
+    const p = screenToComplex(sx, sy);
+    const factor = e.shiftKey ? 2.2 : 1/2.2;
+    const newSpan = Math.min(Math.max(view.span*factor, 1e-13), 10);
+    view.cx = p.cr;
+    view.cy = p.ci;
+    view.span = newSpan;
+    flash(sx, sy);
+    scheduleRender();
+  });
+
+  canvas.addEventListener('mouseleave', ()=>{ cross.style.opacity = '0'; });
+
+  function flash(x,y){
+    const f = document.createElement('div');
+    f.className = 'flash';
+    f.style.left = x+'px';
+    f.style.top = y+'px';
+    stage.appendChild(f);
+    setTimeout(()=>f.remove(), 600);
+  }
+
+  // wheel zoom (bonus, centered on cursor)
+  canvas.addEventListener('wheel', e=>{
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY;
+    const p = screenToComplex(sx, sy);
+    const factor = e.deltaY > 0 ? 1.15 : 1/1.15;
+    const newSpan = Math.min(Math.max(view.span*factor, 1e-13), 10);
+    // keep cursor point fixed
+    const scale = newSpan / W;
+    view.cx = p.cr - (sx - W/2)*scale;
+    view.cy = p.ci - (sy - H/2)*scale;
+    view.span = newSpan;
+    scheduleRender();
+  }, { passive:false });
+
+  // ---------- controls ----------
+  const iterEl = document.getElementById('iter');
+  const cycleEl = document.getElementById('cycle');
+  const iterVal = document.getElementById('iterVal');
+  const cycleVal = document.getElementById('cycleVal');
+
+  iterEl.addEventListener('input', ()=>{
+    maxIter = +iterEl.value;
+    iterVal.textContent = maxIter;
+    scheduleRender();
+  });
+  cycleEl.addEventListener('input', ()=>{
+    cycle = +cycleEl.value;
+    cycleVal.textContent = cycle.toFixed(2);
+    scheduleRender();
+  });
+
+  document.getElementById('reset').addEventListener('click', ()=>{
+    view = { ...HOME };
+    scheduleRender();
+  });
+
+  document.getElementById('save').addEventListener('click', ()=>{
+    const a = document.createElement('a');
+    a.download = 'mandelbrot.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  });
+
+  // swatches
+  const swWrap = document.getElementById('swatches');
+  palettes.forEach((pal, i)=>{
+    const el = document.createElement('div');
+    el.className = 'sw'+(i===0?' active':'');
+    el.title = pal.name;
+    const grad = pal.stops.map(s=>`rgb(${(s[1]*255)|0},${(s[2]*255)|0},${(s[3]*255)|0}) ${(s[0]*100).toFixed(0)}%`).join(',');
+    el.style.background = `linear-gradient(90deg, ${grad})`;
+    el.addEventListener('click', ()=>{
+      palette = pal;
+      buildLUT(pal);
+      document.querySelectorAll('.sw').forEach(s=>s.classList.remove('active'));
+      el.classList.add('active');
+      scheduleRender();
+    });
+    swWrap.appendChild(el);
+  });
+
+  // ---------- boot ----------
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(()=>document.body.classList.add('ready'));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heptagon — 20 Balls</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(120% 120% at 50% 30%, #10182b 0%, #070b16 60%, #04060d 100%);
+    overflow: hidden;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #c { display: block; width: 100vw; height: 100vh; }
+  .hud {
+    position: fixed; top: 22px; left: 26px;
+    color: #cdd8f0; pointer-events: none; user-select: none;
+  }
+  .hud h1 {
+    font-size: 15px; font-weight: 700; letter-spacing: .34em;
+    text-transform: uppercase; color: #eaf0ff;
+  }
+  .hud p {
+    margin-top: 7px; font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: #6f7ea6;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <h1>Heptagon</h1>
+  <p>20 balls · gravity · friction · live collisions</p>
+</div>
+<script>
+(() => {
+  "use strict";
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const TAU = Math.PI * 2;
+
+  const N = 20;
+  const GRAVITY = 1500;
+  const WALL_RESTITUTION = 0.55;
+  const WALL_FRICTION = 0.05;
+  const BALL_RESTITUTION = 0.82;
+  const BALL_FRICTION = 0.02;
+  const AIR_DRAG = 0.00002;
+  const SPIN_SPEED = 0.22;
+  const MAX_SPEED = 2600;
+  const SUBSTEPS = 4;
+  const MAX_SPEED_ITERS = 10;
+  const MAX_POS_ITERS = 6;
+  const MAX_SPEED_WALL = 3200;
+  const MAX_POS_WALL = 12;
+
+  let W, H, cx, cy, R, ballR, walls, balls, angle, lastTime;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = W / 2;
+    cy = H / 2;
+    R = Math.min(W, H) * 0.42;
+    ballR = Math.max(9, R * 0.052);
+    buildWalls();
+  }
+
+  function buildWalls() {
+    walls = [];
+    for (let i = 0; i < 7; i++) {
+      const a1 = -Math.PI / 2 + i * TAU / 7;
+      const a2 = -Math.PI / 2 + (i + 1) * TAU / 7;
+      walls.push({
+        ax: cx + R * Math.cos(a1), ay: cy + R * Math.sin(a1),
+        bx: cx + R * Math.cos(a2), by: cy + R * Math.sin(a2)
+      });
+    }
+  }
+
+  function makeBalls() {
+    balls = [];
+    for (let i = 0; i < N; i++) {
+      const a = i * TAU / N;
+      const rr = R * 0.35;
+      balls.push({
+        x: cx + rr * Math.cos(a),
+        y: cy + rr * Math.sin(a),
+        vx: (Math.random() - 0.5) * 220,
+        vy: (Math.random() - 0.5) * 220,
+        r: ballR,
+        m: ballR * ballR,
+        hue: (i * 137.508) % 360
+      });
+    }
+  }
+
+  function update(dt) {
+    angle += SPIN_SPEED * dt;
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    for (const w of walls) {
+      const dx = w.ax - cx, dy = w.ay - cy;
+      w.ax = cx + dx * cosA - dy * sinA;
+      w.ay = cy + dx * sinA + dy * cosA;
+      const ex = w.bx - cx, ey = w.by - cy;
+      w.bx = cx + ex * cosA - ey * sinA;
+      w.by = cy + ex * sinA + ey * cosA;
+    }
+
+    const sub = dt / SUBSTEPS;
+    for (let s = 0; s < SUBSTEPS; s++) {
+      for (const b of balls) {
+        b.vy += GRAVITY * sub;
+        b.vx *= (1 - AIR_DRAG);
+        b.vy *= (1 - AIR_DRAG);
+        const sp = Math.hypot(b.vx, b.vy);
+        if (sp > MAX_SPEED) { const k = MAX_SPEED / sp; b.vx *= k; b.vy *= k; }
+        b.x += b.vx * sub;
+        b.y += b.vy * sub;
+      }
+      for (let it = 0; it < MAX_SPEED_ITERS; it++) {
+        let any = false;
+        for (let i = 0; i < N; i++) {
+          for (let j = i + 1; j < N; j++) {
+            if (resolveBallBall(balls[i], balls[j])) any = true;
+          }
+        }
+        if (!any) break;
+      }
+      for (let it = 0; it < MAX_POS_ITERS; it++) {
+        let any = false;
+        for (const b of balls) if (resolveWall(b)) any = true;
+        if (!any) break;
+      }
+    }
+  }
+
+  function resolveBallBall(a, b) {
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let d = Math.hypot(dx, dy);
+    const min = a.r + b.r;
+    if (d >= min) return false;
+    if (d < 1e-6) { d = 1e-6; dx = 1; dy = 0; }
+    const nx = dx / d, ny = dy / d;
+    const overlap = min - d;
+    const invA = 1 / a.m, invB = 1 / b.m, invSum = invA + invB;
+    a.x -= nx * overlap * (invA / invSum);
+    a.y -= ny * overlap * (invA / invSum);
+    b.x += nx * overlap * (invB / invSum);
+    b.y += ny * overlap * (invB / invSum);
+    const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+    const vn = rvx * nx + rvy * ny;
+    if (vn < 0) {
+      const j = -(1 + BALL_RESTITUTION) * vn / invSum;
+      a.vx -= j * invA * nx; a.vy -= j * invA * ny;
+      b.vx += j * invB * nx; b.vy += j * invB * ny;
+      const tx = -ny, ty = nx;
+      const vt = rvx * tx + rvy * ty;
+      const jt = -vt * BALL_FRICTION / invSum;
+      a.vx -= jt * invA * tx; a.vy -= jt * invA * ty;
+      b.vx += jt * invB * tx; b.vy += jt * invB * ty;
+    }
+    return true;
+  }
+
+  function resolveWall(b) {
+    let hit = false;
+    for (let it = 0; it < MAX_POS_WALL; it++) {
+      let closest = Infinity, cwx = 0, cwy = 0, cpx = 0, cpy = 0;
+      for (const w of walls) {
+        const ex = w.bx - w.ax, ey = w.by - w.ay;
+        const len2 = ex * ex + ey * ey;
+        let t = ((b.x - w.ax) * ex + (b.y - w.ay) * ey) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const px = w.ax + ex * t, py = w.ay + ey * t;
+        const ddx = b.x - px, ddy = b.y - py;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 < closest) { closest = d2; cwx = px; cwy = py; cpx = b.x; cpy = b.y; }
+      }
+      const d = Math.sqrt(closest);
+      if (d >= b.r) break;
+      let nx, ny;
+      if (d < 1e-6) {
+        nx = cpx - cx; ny = cpy - cy;
+        const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
+      } else {
+        nx = (cpx - cwx) / d; ny = (cpy - cwy) / d;
+      }
+      b.x = cwx + nx * b.r;
+      b.y = cwy + ny * b.r;
+      const wx = (cwy - cy) * SPIN_SPEED, wy = -(cwx - cx) * SPIN_SPEED;
+      const rvx = b.vx - wx, rvy = b.vy - wy;
+      const vn = rvx * nx + rvy * ny;
+      if (vn < 0) {
+        const jn = -(1 + WALL_RESTITUTION) * vn;
+        b.vx += jn * nx; b.vy += jn * ny;
+        const tx = -ny, ty = nx;
+        const vt = rvx * tx + rvy * ty;
+        b.vx -= vt * WALL_FRICTION * tx;
+        b.vy -= vt * WALL_FRICTION * ty;
+        const sp = Math.hypot(b.vx, b.vy);
+        if (sp > MAX_SPEED_WALL) { const k = MAX_SPEED_WALL / sp; b.vx *= k; b.vy *= k; }
+      }
+      hit = true;
+    }
+    return hit;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.15);
+    bg.addColorStop(0, 'rgba(40,60,110,0.35)');
+    bg.addColorStop(0.6, 'rgba(20,30,60,0.12)');
+    bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.beginPath();
+    ctx.moveTo(walls[0].ax, walls[0].ay);
+    for (let i = 1; i < 7; i++) ctx.lineTo(walls[i].ax, walls[i].ay);
+    ctx.closePath();
+    const fill = ctx.createRadialGradient(cx, cy - R * 0.2, R * 0.1, cx, cy, R);
+    fill.addColorStop(0, 'rgba(30,45,85,0.55)');
+    fill.addColorStop(1, 'rgba(10,16,34,0.72)');
+    ctx.fillStyle = fill;
+    ctx.fill();
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(120,180,255,0.5)';
+    ctx.shadowBlur = 26;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(150,195,255,0.9)';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(120,160,230,0.18)';
+    for (let i = 0; i < 7; i++) {
+      const a = -Math.PI / 2 + i * TAU / 7;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a));
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 7; i++) {
+      const a = -Math.PI / 2 + i * TAU / 7;
+      const vx = cx + R * Math.cos(a), vy = cy + R * Math.sin(a);
+      ctx.beginPath();
+      ctx.arc(vx, vy, 4, 0, TAU);
+      ctx.fillStyle = 'rgba(190,220,255,0.9)';
+      ctx.fill();
+    }
+
+    for (const b of balls) {
+      const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.1, b.x, b.y, b.r);
+      g.addColorStop(0, `hsl(${b.hue},90%,82%)`);
+      g.addColorStop(0.5, `hsl(${b.hue},85%,58%)`);
+      g.addColorStop(1, `hsl(${b.hue},80%,34%)`);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, TAU);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = `700 ${Math.round(b.r * 0.95)}px "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(balls.indexOf(b) + 1), b.x, b.y + 0.5);
+    }
+  }
+
+  function frame(t) {
+    if (lastTime === undefined) lastTime = t;
+    let dt = (t - lastTime) / 1000;
+    lastTime = t;
+    if (dt > 0.033) dt = 0.033;
+    if (dt < 0) dt = 0;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  makeBalls();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

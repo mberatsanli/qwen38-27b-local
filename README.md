@@ -268,6 +268,12 @@ the full argument, including what I did not check.
 - **`-hf` and resolved blob paths make the server report a hash as the model name.** Point
   `-m` at the snapshot symlink and set `-a`.
 
+## The artifacts are playable
+
+Everything the model wrote is at **https://mberatsanli.github.io/qwen38-27b-local/** — the
+games run, the pelicans render, and the gallery lists the bugs found in each file
+underneath it. Four of the ten are broken, which is why they are worth looking at.
+
 ## Layout
 
 ```
