@@ -1,84 +1,88 @@
 ---
-title: "A control run killed my best theory about 3-bit quantisation"
-description: "I found a failure pattern in a 3-bit model that had a mechanism and a spectacular example. Then I ran the control, and the pattern turned out to be denser without the variable I blamed."
+title: "I blamed the KV cache, then found the same bugs without it"
+description: "I got a 27B model running on my gaming GPU, asked it to draw a pelican and write Flappy Bird, and thought I'd worked out what the cheap settings were costing me. Then I checked."
 pubDate: 2026-08-23
 slug: kv-cache-quantisation-null-result
-tags: ["llm", "llama.cpp", "benchmarking", "gpu"]
+tags: ["llm", "llama.cpp", "gpu", "side-project"]
 draft: true
 ---
 
-Asked for twenty balls bouncing in a spinning heptagon, my local model wrote this, 153 times:
+I asked the model on my desktop to draw a pelican riding a bicycle. It's a silly test that
+Simon Willison started, and the point is that the scene can't be in the training data, so
+the model has to work it out. Mine gave me this:
 
-```js
-const MAX_SPEED_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_WALL = 3200;
+![Two SVG pelicans on bicycles side by side. The left one has orange legs shooting off the top edge of the frame and a body floating above the bike; the right one has legs that reach the pedals and a neck attached to the head](/images/pelican-kv-comparison.webp)
+*Left is the cheap setting I was suspicious of, right is the expensive one. Same prompt, same seed.*
+
+The bicycle is fine both times. Spokes, chain, handlebars, a frame that makes sense. The
+left bird's legs shoot off the top of the picture, and I spent a while convinced I knew why.
+
+The actual reason is one word. Line 78 of that file draws a leg as
+`<line x1="155" cy="195" x2="180" y2="265">`, and `<line>` has no `cy` attribute, so that
+end of the leg defaults to the corner of the image. It does it twice. That is a typo, not a
+memory problem, and it took me longer than it should have to go and look.
+
+## Why I was poking at this at all
+
+I'd been trying to get something big running on a 16 GB gaming card. Qwen3.8-27B, squashed
+down to 3 bits so it fits in 12.24 GiB, on an RTX 5080.
+
+Guides I found said 16 GB gets you 8K to 16K of context, or 4-bit weights with some of
+the model spilling into system RAM. I ended up at **90,112 tokens**, all of it on the GPU: 130 tok/s
+on a short prompt, about 84 once there's 85K of conversation behind it. Filling that cold
+costs roughly a hundred seconds of chewing before the first word appears, which is the real
+limit rather than the memory.
+
+Here's the whole setup, so the numbers below mean something:
+
+```bash
+# RTX 5080 16 GB, driver 595.84, CUDA 13.3, Ubuntu 26.04
+# llama.cpp b10588 (70adb1b4c), built with -DCMAKE_CUDA_ARCHITECTURES=120a-real
+# model: unsloth/Qwen3.8-27B-GGUF, UD-Q3_K_XL, 12.24 GiB
+
+llama-server -m Qwen3.8-27B-UD-Q3_K_XL.gguf -ngl 99 -fit off \
+  -c 90112 -ctk q4_0 -ctv q4_0 -fa on \
+  --spec-type draft-mtp --spec-draft-n-max 3 --jinja
 ```
 
-Thirty-seven `_BALL`s in one identifier. It burned all 14,000 tokens of its budget on
-constants and wrote none of the simulation. No canvas, no loop, nothing. The model is
-Qwen3.8-27B quantised to 3 bits, running on one RTX 5080, and I thought I knew what this
-meant.
+Every generation below used seed 42 and temperature 0. `-fit off` matters more than it
+looks: llama.cpp will quietly shrink `-c` to whatever fits and not tell you, so a run that
+doesn't error isn't a run that got the context you asked for. I lost a session's worth of
+numbers to that before I noticed.
 
-I was wrong, and the run that showed me took twenty minutes.
+Most of that gap comes from one setting nobody seems to touch. The KV cache holds the
+model's memory of the conversation so far, and llama.cpp will store it at 4 bits instead of
+16. That's 18 KiB per token instead of 64, so **3.6 times the context for the same memory**.
 
-## Only 16 of the 64 layers have a KV cache
+What does that cost? I ran perplexity over a big pile of C++ and got
++0.037% at 8K context and +0.094% at 32K, both well inside the noise. So: free.
 
-The reason a 27B model fits any meaningful context in 16 GB is architectural. Its GGUF
-metadata gives it away:
+I didn't believe it.
 
-```
-general.architecture     = qwen35
-qwen35.block_count       = 65
-qwen35.full_attention_interval = 4
-qwen35.attention.head_count_kv = 4
-qwen35.attention.key_length    = 256
-```
+## Perplexity grades the model on someone else's writing
 
-`full_attention_interval = 4` means every fourth layer is real attention. Reading the tensor
-list confirms it. `attn_k`/`attn_v` tensors exist on layers 3, 7, 11 … 63 and nowhere else.
-The other 48 layers are DeltaNet, linear attention with a recurrent state that stays a
-constant 149 MiB no matter how long the context gets.
+Perplexity feeds the model a document it didn't write and measures how surprised it is. It
+never asks the model to stay consistent with 8,000 tokens of its own output, which is the
+whole job when it's writing a game.
 
-So the KV cache is sized by 16 layers, not 65. At f16 that's 64.0 KiB per token; the
-published guidance I'd been reading assumed a dense model and quoted "8K to 16K context" for
-this card. I measured a ceiling of 159,744 tokens, entirely on the GPU, by bisecting real
-allocation.
+And there's a reason to be suspicious. While it writes, the model looks back at what it
+already wrote, and that lives in the KV cache. Squash the cache to 4 bits and its memory of
+what it said 400 tokens ago gets fuzzy. If that mattered, I'd expect a particular kind of
+bug: the model sets something up correctly, then forgets to use it.
 
-## Quantising the KV cache costs 0.09% perplexity
+So instead of perplexity I had it write things. Flappy Bird, a Mandelbrot explorer, a solar
+system, twenty balls bouncing in a spinning heptagon, and the pelican. One shot each, no
+follow-up messages, nothing fixed by hand.
 
-`q4_0` stores the cache at 18.0 KiB per token against f16's 64.0. That is 3.6× more context
-for the same memory. The question is what it costs. Over 104,694 tokens of llama.cpp's own C++
-source:
+## It kept setting things up and then ignoring them
 
-```
-c=8192    f16 1.6057 ±0.0097   q8_0 1.6059   q4_0 1.6063
-c=32768   f16 1.4909 ±0.0059                 q4_0 1.4923
-```
+Flappy Bird works. It's playable, the pipes have gaps, the score counts.
 
-The q4_0 column moves by +0.037% at 8K and +0.094% at 32K. Both are inside the error bar by
-a factor of 4 to 16. On this evidence the cheap cache is free, and that single fact is what
-turns a 40K-context card into a 160K one.
+![A Flappy Bird clone in a browser with green pipes, a score of zero and a small bird mid-flight](/images/flappy-oneshot.webp)
+*Playable, but the pipes are 220 px apart on a canvas 440 px wide, so there are always two on screen with about 154 px of gap. I never got past the first one.*
 
-Then I stopped trusting it.
-
-## Perplexity is a mean over text someone else wrote
-
-Perplexity is teacher-forced. It measures how surprised the model is by a document it did
-not produce. It says nothing about staying consistent with 8,000 tokens of its own output,
-which is what code generation is.
-
-And there's a mechanism to suspect. While generating, the model attends over its own
-previous tokens, and those live in the KV cache. Quantise the cache to 4 bits and the
-model's memory of what it wrote 400 tokens ago is lossy. If that mattered, it would show up
-as a specific shape: correct setup written, then a consumer written as though the setup
-weren't there.
-
-So I ran the community's one-shot tests: pelican on a bicycle, Flappy Bird, a Mandelbrot
-explorer, a solar system, the heptagon. Every artifact was reviewed for defects, with a
-second pass whose only job was to refute the first.
-
-## The shape was in every artifact
-
-Flappy Bird's loop does the delta-time calculation correctly:
+Inside, the game loop works out how much time passed since the last frame, clamps it, and
+hands it to the update function:
 
 ```js
 function loop(t){
@@ -88,92 +92,110 @@ function loop(t){
   update(dt);
 ```
 
-Then `update(dt)` never multiplies anything by `dt`. Not once. `grep` finds the variable
-only in the loop above and as the unused parameter. Physics runs per-frame: `p.x -=
-PIPE_SPEED`, `bird.vy += GRAVITY`. On my 60 Hz monitor the tuning is right. On a 144 Hz one
-the same file is a different game.
+And then `update(dt)` never uses `dt`. Not once. Gravity and pipe speed are applied per
+frame, so on my 60 Hz monitor it's tuned right and on a 144 Hz one it'd be a different game.
+The model clearly knew the correction was needed. It wrote it, passed it in, and never
+multiplied by it.
 
-![A Flappy Bird clone with pipes, a score counter and a bird mid-flight, rendered in a browser](/images/flappy-oneshot.webp)
-*The game runs and is playable. Two pipes are on screen at once with 154 px of clear air between them, because PIPE_SPACING is 220 px on a canvas capped at 440 px.*
+The Mandelbrot does the same thing in a different costume. It writes its colours as numbers
+between 0 and 1 into an array that only accepts 0 to 255, so every colour rounds to black.
+Two hundred lines further down, the swatch builder does the same conversion with the `*255`
+in place.
 
-The Mandelbrot renderer writes palette stops as 0–1 floats into a `Uint8ClampedArray`, so
-every colour rounds to 0 or 1. A swatch builder 35 lines away does the `*255` correctly. The state machine assigns `state = 'dead'` and three input handlers compare
-against `'over'`, so keyboard restart is dead code. The solar system's eight orbital periods
-are right to three decimals against real values, sitting inside an animation that is broken
-in other ways.
+Then the heptagon, which is what really convinced me. Asked for twenty bouncing balls, it
+wrote this 153 times:
 
-Every one of these has the same signature: the correct thing is present in the same file,
-often within 40 lines, and the consumer ignores it. Plus the heptagon, which never got as
-far as contradicting a plan.
+```js
+const MAX_SPEED_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_BALL_WALL = 3200;
+```
 
-## The control tied 24 to 24
+Thirty-seven `_BALL`s in one name. It got as far as a `<canvas>` tag, a 2d drawing context
+and eleven sensible physics constants, then spent the rest of its 14,000 tokens naming things
+and never wrote the loop. A model losing track of what it wrote thirty lines ago is what a
+fuzzy memory of its own output should look like.
 
-Same model file, same five prompts, same seed 42, same temperature 0, same speculative
-draft depth. One variable changed: `-ctk`/`-ctv` from `q4_0` to `f16`.
+## Turning it off changed nothing
 
-| | q4_0 KV | f16 KV |
+I had a model read every file and list what was wrong with it, then had a second one try to
+knock each finding down. A bug is one thing I'd have to go and fix. Different graders read
+each run and clearly at different levels of fussiness, so read 24 to 24 as "about the same"
+rather than an exact match.
+
+Same model, same five prompts, same seed. Two things changed, not one: the cache, and `-c`.
+The 4-bit run had 90,112 tokens of context and the 16-bit one 24,576, because a 16-bit cache
+physically can't reach 90K on this card at 64 KiB per token. I don't think the allocated
+size changes the maths for a 16,000 token generation, but I didn't check that.
+
+|  | 4-bit cache | 16-bit cache |
 |---|---|---|
-| confirmed defects | 24 | 24 |
-| artifacts completed | 4 / 5 | 5 / 5 |
-| same state as the other arm | | 4 of 5 |
+| bugs found | 24 | 24 |
+| files that came out complete | 4 of 5 | 5 of 5 |
 
-An exact tie. And the shape I was chasing is at least as common in the control, which
-supplied the purest examples I found anywhere: `legendRows` pushed as `{p: row}` and
-destructured as `{p, row}`, so every legend update throws. `scale * factor` written with the
-correct sense in the pinch handler and inverted in click, wheel and keyboard. A
-ground-collision branch that inlines the first two statements of `gameOver()` and drops the
-rest, softlocking the game on the most common death.
+Four of the five prompts ended up in the same state in both runs. Same number of bugs, and
+the same *kind* of bugs. The 16-bit run has a legend that
+builds rows one way and reads them another, so it crashes on every update. It has a zoom
+factor written the right way round in one place and upside down in five others. It has a
+death branch that copies the first two lines of the game-over function and drops the rest,
+so falling on the ground softlocks the game.
 
-Both arms produced the same defect at the same site, too. Under q4_0, Flappy computes `dt`
-and never applies it. Under f16 it declares `let last = 0`, accepts the `rAF` timestamp, and
-reads neither. Same failure, same function, different cache precision.
+Flappy Bird even broke the same way twice. The 4-bit run works out the frame time and never
+uses it. The 16-bit run declares a variable to hold the frame time, takes the timestamp as
+an argument, and reads neither.
 
-Here is the image that nearly convinced me anyway:
+So the pattern I'd been collecting isn't a fingerprint of the cheap cache. It happens as much
+without it.
 
-![Two SVG pelicans on bicycles side by side. The left one has orange legs shooting off the top edge of the frame and a detached body; the right one has legs that connect the body to the pedals and a neck attached to the head](/images/pelican-kv-comparison.webp)
-*Same prompt, same seed, KV dtype the only difference. The q4_0 bird's legs run off the top edge because one endpoint was written as `cy` on a `<line>`, an attribute `<line>` doesn't have, so it defaults to the origin. One attribute name.*
+If you're wondering how the same seed and temperature 0 produced different files at all:
+changing the cache changes the numbers coming out of the model slightly, and one different
+choice near the start sends everything after it somewhere else. These are two neighbouring
+runs, not the same run nudged.
 
-That is one artifact. The Mandelbrot is broken in both arms, by a temporal-dead-zone
-`ReferenceError` under q4_0 and a duplicate `const rect` under f16. Both screenshots are a
-blank gradient. Four of the five land in the same bucket.
+## What survived is one run, and one run isn't much
 
-## What survived is one prompt, and one prompt can't carry it
+The heptagon is the only place the two runs really differ. With the 16-bit cache, the same
+prompt wrote a working simulation in 3,775 tokens.
 
-The heptagon is the only real difference. Under f16 the same prompt at the same seed wrote a
-complete simulation in 3,775 tokens, with an impulse solver, mass weighting and substepping.
+![Twenty numbered balls piled at the bottom of a dark heptagon outline](/images/heptagon-f16.webp)
+*The 16-bit run made this. The 4-bit run made 153 constants and no canvas. That's the whole difference between them.*
 
-![Twenty numbered balls resting in a heap at the bottom of a dark heptagon outline](/images/heptagon-f16.webp)
-*The f16 run produced a running simulation. The q4_0 run produced 153 constant declarations and no canvas. This is the entire measurable difference between the two arms.*
+It's the exact failure I predicted, in the arm I predicted it in. It's also one prompt out
+of five, from one seed. If I flipped a coin five times and got one head, I wouldn't conclude
+much either.
 
-It's a genuine attention-to-own-output failure and it's the shape the theory predicts. It's
-also 1 of 5 versus 0 of 5, which is Fisher exact p = 1.0. On counts near 24 the Poisson
-interval is roughly ±10, so this design can't resolve anything smaller than a 40% change in
-defect rate.
+Two things are worth keeping apart here, because I mashed them together the first time I
+explained it to someone. "That pattern comes from the 4-bit cache" is dead, because the
+pattern turns up without it. "The 4-bit cache makes long writing drift" is still standing,
+untested, with one run pointing at it. I didn't disprove the idea. I disproved my reason for
+believing it.
 
-Temperature 0 doesn't rescue it either. Changing the KV dtype changes the logits, so one
-argmax flip early forks everything downstream. These are two draws from adjacent
-distributions, not one generation perturbed.
+## What I actually run
 
-Verdict: insufficient evidence.
+Still the 4-bit cache. The quality cost I can measure is smaller than the noise, it buys me
+3.6 times the context, and the one thing arguing against it is a single weird run. If a long
+generation ever falls into a loop like the heptagon did, I'll switch the cache back to 16
+bits and see, and then I'll have two data points instead of a theory.
 
-## What I did not check
+## Things I didn't check
 
-- **Reviewer calibration.** Different agents graded each arm at different levels of detail.
-  One tagged 11 of 24 defects as "knew better", the other 21 of 24. I'm reading that 46%
-  versus 88% split as the reviewers, not the model, and I have no blind re-grade to prove it.
-- **Whether q4_0's heptagon would have recovered.** The 14,000-token cap is my harness
-  limit, and it only ever bound one arm.
-- **Context size parity.** The q4_0 arm ran at `-c 90112` and the control at `-c 24576`,
-  because f16 can't reach 90K on this card. Allocated context shouldn't change the maths for
-  a 16K sequence, but I didn't verify that empirically.
-- **q8_0 as a third point.** A real precision effect should order f16 ≥ q8_0 ≥ q4_0. A
-  two-point comparison can't show monotonicity.
-- **Whether any of this is about quantisation at all.** There's no unquantised baseline
-  here, so I can't separate "3-bit weights" from "this model, one shot, no repair turn".
+- Whether that heptagon would have recovered if I'd let it run past 14,000 tokens. That
+  limit is mine, and it only ever stopped one of the two runs.
+- Whether any of this is about the 4-bit weights, the 4-bit cache, or what happens when
+  you ask for 8,000 lines of code in one shot with no chance to test it. I have no
+  full-precision version to compare against.
+- 8-bit as a middle point. If the cache really matters, 16-bit should beat 8-bit should beat
+  4-bit, and two points can't show a line.
+- Whether the perplexity number covers what I use it for. Both measurements are at 32K or
+  below, I run at 90,112, and the cost roughly tripled between the two points I have. I
+  couldn't take a third: a 16-bit cache can't reach 65K on this card to compare against.
+- Anything on a second machine. This is one card, one model, one afternoon.
 
-## The next run
+Every artifact from both runs and the timings are in
+[qwen38-27b-local](https://github.com/mberatsanli/qwen38-27b-local), along with the prompts
+and the script that ran them. The machine-readable list of what's wrong with each file
+covers the 4-bit run only. The header-reading tool that works out a model's context ceiling before
+you download it is in [gguf-envelope](https://github.com/mberatsanli/gguf-envelope).
 
-Defect count needs a reviewer, and reviewers vary. The arms only ever differed on whether
-the generation ran away, and that's binary and free to count. Thirty prompts per arm,
-several seeds, a raised ceiling so a runaway gets measured instead of truncated. If you've
-run something like this and got a different answer, I'd like the seed and the flags.
+My two runs only really differed on whether the model went off the rails, and counting that
+needs no opinion about code quality. Thirty prompts each, a few seeds, a bigger token budget
+so a runaway gets measured instead of cut off. If you've tried this and got a different
+answer, I'd like your seed and your flags.

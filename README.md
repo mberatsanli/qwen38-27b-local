@@ -226,9 +226,10 @@ That predicts a specific failure shape: correct setup written, then a consumer w
 though the setup were not there. I found that shape everywhere in the q4_0 artifacts.
 Flappy Bird computes a frame delta, clamps it, passes it to `update(dt)`, and never
 multiplies by it. The Mandelbrot renderer writes 0–1 floats into a `Uint8ClampedArray` while
-a swatch builder 35 lines away does the `×255` correctly. And the heptagon prompt collapsed
+the swatch builder 210 lines further down does the same conversion correctly. And the heptagon prompt collapsed
 into 153 near-identical `MAX_SPEED_BALL_BALL_…_WALL` declarations, spent all 14,000 tokens
-on constants, and wrote none of the simulation.
+on constants. It got as far as a `<canvas>` tag, a 2d context and eleven physics
+constants, and never wrote the loop.
 
 Then I ran the control. Same model, same five prompts, same seed, same temperature, same
 draft depth, `-ctk`/`-ctv` changed from `q4_0` to `f16`.
