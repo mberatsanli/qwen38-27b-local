@@ -278,10 +278,14 @@ oneshot/results/      every artifact, index.json (timings), defects.json (what i
 writeup/post.md       the article about the null result
 ```
 
-For measuring a *different* model or card, the generic version of this tooling lives in a
-separate repo, `gguf-envelope`: it reads a GGUF header (over an HTTP range request if you
-point it at a URL, so inspecting a 13 GB model costs 30 MB), predicts the KV cost per token,
-and bisects the real ceiling with `-fit off`.
+For measuring a *different* model or card, the generic version of this tooling is in
+[`gguf-envelope`](https://github.com/mberatsanli/gguf-envelope). It reads a GGUF header
+over an HTTP range request if you point it at a URL, so inspecting a 9 GiB model on
+HuggingFace takes two seconds and 30 MB, and it bisects the real ceiling with `-fit off`.
+
+That is worth doing before a download. On this card, at q4_0 KV: Gemma 3 12B Q6_K is
+3.2 GiB *smaller* than the model here and gets **57,900** tokens of context against
+**158,300**, because all 48 of its layers carry a KV cache and only 16 of these 65 do.
 
 ## Corrections welcome
 
