@@ -1,0 +1,8 @@
+{
+ "id": "pelican",
+ "kind": "svg",
+ "max_tokens": 4000,
+ "title": "Pelican on a bicycle",
+ "why": "Simon Willison's benchmark. A scene that cannot exist in the training data, so the model has to compose it: valid SVG syntax, bicycle structure, pelican anatomy, and the spatial relation between them.",
+ "prompt": "Generate an SVG of a pelican riding a bicycle. Output only the SVG markup, nothing else."
+}

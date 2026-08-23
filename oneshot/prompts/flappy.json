@@ -1,0 +1,8 @@
+{
+ "id": "flappy",
+ "kind": "html",
+ "max_tokens": 14000,
+ "title": "Flappy Bird, one shot",
+ "why": "The classic zero-shot game test: game loop, collision, scoring and restart, with no follow-up turn to fix anything.",
+ "prompt": "Write a complete, playable Flappy Bird clone as a single self-contained HTML file. Click or press space to flap. Include pipes with gaps, collision detection, a score counter and a restart on game over. Use only HTML, CSS and vanilla JavaScript with a canvas. Output only the file contents."
+}

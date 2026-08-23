@@ -1,0 +1,8 @@
+{
+ "id": "heptagon",
+ "kind": "html",
+ "max_tokens": 14000,
+ "title": "Balls in a spinning heptagon",
+ "why": "The viral physics one-shot. Needs collision detection against rotating walls, gravity, damping and a render loop - all in one pass with no chance to debug.",
+ "prompt": "Write a single self-contained HTML file with 20 numbered balls bouncing inside a spinning heptagon. The heptagon rotates slowly around its centre. The balls must have gravity, friction and realistic collisions with the rotating walls and with each other, and must stay inside the heptagon. Use only HTML, CSS and vanilla JavaScript with a canvas. Output only the file contents."
+}

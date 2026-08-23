@@ -1,0 +1,8 @@
+{
+ "id": "solar",
+ "kind": "html",
+ "max_tokens": 14000,
+ "title": "Solar system",
+ "why": "Tests whether the model holds a set of real facts (relative orbital periods and sizes) while writing an animation, rather than picking one or the other.",
+ "prompt": "Write a single self-contained HTML file that animates the solar system: the Sun and the eight planets orbiting it. Keep the relative orbital periods roughly correct so the inner planets visibly move faster, label each planet, and let the user hover a planet to see its name. Use only HTML, CSS and vanilla JavaScript with a canvas. Output only the file contents."
+}

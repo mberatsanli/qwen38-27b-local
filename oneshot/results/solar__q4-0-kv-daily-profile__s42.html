@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solar System — Live Orbital Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#04060e;
+    --ink:#eaf0ff;
+    --muted:#8b97b8;
+    --line:rgba(150,175,255,.14);
+    --accent:#ffd27a;
+    --panel:rgba(9,13,26,.72);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Space Grotesk",system-ui,sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  #space{position:fixed;inset:0;display:block;z-index:0}
+
+  .ui{position:fixed;z-index:2;pointer-events:none}
+  .ui *{pointer-events:auto}
+
+  /* ---------- Header ---------- */
+  .brand{top:26px;left:30px;max-width:min(46vw,520px)}
+  .kicker{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 10px;
+    display:flex;align-items:center;gap:9px;
+  }
+  .kicker::before{
+    content:"";width:7px;height:7px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 12px var(--accent);
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.4;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}}
+  h1{
+    margin:0;font-weight:700;line-height:.92;
+    font-size:clamp(30px,5.4vw,58px);letter-spacing:-.02em;
+  }
+  h1 .thin{font-weight:400;color:var(--muted)}
+  .sub{
+    margin:12px 0 0;font-size:14px;color:var(--muted);max-width:340px;line-height:1.5;
+  }
+
+  /* ---------- Legend ---------- */
+  .legend{
+    top:26px;right:30px;width:236px;
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:14px 15px 12px;
+    backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.8);
+  }
+  .legend h2{
+    margin:0 0 10px;font-family:"IBM Plex Mono",monospace;
+    font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);
+    font-weight:500;
+  }
+  .legend ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+  .legend li{
+    display:flex;align-items:center;gap:10px;
+    padding:6px 8px;border-radius:8px;cursor:pointer;
+    transition:background .18s ease,transform .18s ease;
+  }
+  .legend li:hover{background:rgba(150,175,255,.09);transform:translateX(3px)}
+  .legend .dot{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor}
+  .legend .nm{font-size:13.5px;font-weight:500;flex:1}
+  .legend .yr{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+
+  /* ---------- Controls ---------- */
+  .controls{
+    left:30px;bottom:26px;display:flex;align-items:center;gap:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:12px 16px;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.8);
+  }
+  .btn{
+    width:38px;height:38px;border-radius:50%;border:1px solid var(--line);
+    background:rgba(150,175,255,.06);color:var(--ink);cursor:pointer;
+    display:grid;place-items:center;transition:.18s ease;
+  }
+  .btn:hover{background:rgba(255,210,122,.16);border-color:var(--accent);color:var(--accent);transform:scale(1.06)}
+  .btn svg{width:16px;height:16px;fill:currentColor}
+  .ctrl-label{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+  .speed{display:flex;align-items:center;gap:10px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:130px;height:4px;border-radius:4px;
+    background:linear-gradient(90deg,var(--accent),rgba(150,175,255,.25));outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--ink);border:2px solid var(--accent);box-shadow:0 0 10px var(--accent);cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border-radius:50%;background:var(--ink);border:2px solid var(--accent);cursor:pointer;
+  }
+  .speed-val{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--accent);min-width:44px;text-align:right}
+
+  /* ---------- Info card ---------- */
+  .info{
+    left:30px;bottom:96px;width:288px;
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:18px 18px 16px;backdrop-filter:blur(11px);-webkit-backdrop-filter:blur(11px);
+    box-shadow:0 24px 60px -22px rgba(0,0,0,.85);
+    opacity:0;transform:translateY(14px);transition:opacity .3s ease,transform .3s ease;
+    border-left:3px solid var(--accent);
+  }
+  .info.show{opacity:1;transform:translateY(0)}
+  .info .tag{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+  .info h3{margin:6px 0 2px;font-size:26px;font-weight:700;letter-spacing:-.01em}
+  .info .type{font-size:12.5px;color:var(--accent);margin-bottom:12px}
+  .info .desc{font-size:13px;line-height:1.55;color:#c3cbe4;margin:0 0 14px}
+  .info .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;border-top:1px solid var(--line);padding-top:13px}
+  .info .stat .k{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .info .stat .v{font-size:14px;font-weight:600;margin-top:2px}
+
+  /* ---------- Tooltip ---------- */
+  .tooltip{
+    position:fixed;z-index:5;pointer-events:none;
+    background:rgba(6,9,18,.92);border:1px solid var(--line);border-radius:9px;
+    padding:8px 12px;transform:translate(-50%,-140%);
+    opacity:0;transition:opacity .12s ease;white-space:nowrap;
+    box-shadow:0 10px 30px -10px rgba(0,0,0,.9);
+  }
+  .tooltip.show{opacity:1}
+  .tooltip .t-name{font-size:14px;font-weight:600}
+  .tooltip .t-sub{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--muted);margin-top:2px}
+
+  .hint{
+    position:fixed;right:30px;bottom:26px;z-index:2;
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;
+    color:var(--muted);text-transform:uppercase;
+  }
+
+  @media (max-width:720px){
+    .legend{display:none}
+    .sub{display:none}
+    .info{width:calc(100vw - 60px)}
+    .hint{display:none}
+  }
+</style>
+</head>
+<body>
+<canvas id="space"></canvas>
+
+<header class="ui brand">
+  <p class="kicker">Live Orbital Map</p>
+  <h1>Solar <span class="thin">System</span></h1>
+  <p class="sub">Eight worlds in motion around a single star. Orbital periods are scaled to reality — watch the inner planets race while the giants crawl.</p>
+</header>
+
+<aside class="ui legend">
+  <h2>Planets</h2>
+  <ul id="legendList"></ul>
+</aside>
+
+<div class="ui controls">
+  <button class="btn" id="playBtn" title="Pause / Play" aria-label="Pause or play">
+    <svg id="playIcon" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+  </button>
+  <div class="speed">
+    <span class="ctrl-label">Speed</span>
+    <input type="range" id="speed" min="0" max="3" step="0.05" value="1">
+    <span class="speed-val" id="speedVal">1.0×</span>
+  </div>
+</div>
+
+<div class="ui info" id="info">
+  <div class="tag" id="infoTag">Planet</div>
+  <h3 id="infoName">—</h3>
+  <div class="type" id="infoType">—</div>
+  <p class="desc" id="infoDesc">—</p>
+  <div class="stats">
+    <div class="stat"><div class="k">Orbital period</div><div class="v" id="infoPeriod">—</div></div>
+    <div class="stat"><div class="k">Distance</div><div class="v" id="infoDist">—</div></div>
+    <div class="stat"><div class="k">Diameter</div><div class="v" id="infoDiam">—</div></div>
+    <div class="stat"><div class="k">Moons</div><div class="v" id="infoMoons">—</div></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="t-name" id="tipName">—</div>
+  <div class="t-sub" id="tipSub">—</div>
+</div>
+
+<div class="hint">Hover a planet · drag the speed</div>
+
+<script>
+(function(){
+  "use strict";
+  const canvas = document.getElementById('space');
+  const ctx = canvas.getContext('2d');
+  let W=0,H=0,DPR=1;
+
+  // ---- Planet data (periods in Earth years, roughly correct) ----
+  const PLANETS = [
+    {name:'Mercury', period:0.241,  dist:'57.9M km',  diam:'4,879 km',  moons:'0',  type:'Rocky planet',
+     desc:'The smallest planet and the closest to the Sun. A scorched, cratered world with almost no atmosphere.',
+     color:'#b8b0a6', glow:'#d8d0c6', r:3.4,  orbit:0.155, phase:0.6},
+    {name:'Venus',   period:0.615,  dist:'108.2M km', diam:'12,104 km', moons:'0',  type:'Rocky planet',
+     desc:'Wrapped in thick clouds of sulfuric acid, Venus is the hottest planet — a runaway greenhouse.',
+     color:'#e6c98a', glow:'#f4e0a8', r:5.6,  orbit:0.235, phase:2.1},
+    {name:'Earth',   period:1.0,    dist:'149.6M km', diam:'12,742 km', moons:'1',  type:'Rocky planet',
+     desc:'Our home. The only known world with liquid water oceans and life.',
+     color:'#4f8fd6', glow:'#7fb4ef', r:5.9,  orbit:0.315, phase:4.0},
+    {name:'Mars',    period:1.881,  dist:'227.9M km', diam:'6,779 km',  moons:'2',  type:'Rocky planet',
+     desc:'The red planet, home to the tallest volcano in the solar system, Olympus Mons.',
+     color:'#d1603a', glow:'#ef8a5e', r:4.4,  orbit:0.40,  phase:1.2},
+    {name:'Jupiter', period:11.86,  dist:'778.5M km', diam:'139,820 km',moons:'95', type:'Gas giant',
+     desc:'The largest planet — a swirling gas giant whose Great Red Spot is a storm wider than Earth.',
+     color:'#d8a878', glow:'#f0c89a', r:13.5, orbit:0.56,  phase:3.3},
+    {name:'Saturn',  period:29.46,  dist:'1.43B km',  diam:'116,460 km',moons:'146',type:'Gas giant',
+     desc:'Famous for its dazzling ring system of ice and rock, spanning hundreds of thousands of kilometres.',
+     color:'#e3c98f', glow:'#f4e2b0', r:11.5, orbit:0.70,  phase:5.1, ring:true},
+    {name:'Uranus',  period:84.01,  dist:'2.87B km',  diam:'50,724 km', moons:'28', type:'Ice giant',
+     desc:'An ice giant tipped on its side, rolling around the Sun with a faint blue-green hue.',
+     color:'#9fd8d8', glow:'#c2ecec', r:8.2,  orbit:0.82,  phase:0.2},
+    {name:'Neptune', period:164.8,  dist:'4.50B km',  diam:'49,244 km', moons:'16', type:'Ice giant',
+     desc:'The most distant planet — a deep-blue ice giant lashed by the fastest winds in the solar system.',
+     color:'#4a6fd6', glow:'#7a9bef', r:8.0,  orbit:0.93,  phase:2.7}
+  ];
+
+  // ---- State ----
+  let cx=0, cy=0, scale=0, sunR=0;
+  let time=0, last=performance.now();
+  let playing=true, speed=1;
+  let hovered=null, mouseX=-1, mouseY=-1;
+  const BASE_SPEED = 0.16; // rad/s for Earth at 1x
+
+  // ---- Stars ----
+  let stars=[];
+  function makeStars(){
+    stars=[];
+    const n = Math.round((W*H)/9000);
+    for(let i=0;i<n;i++){
+      stars.push({
+        x:Math.random()*W, y:Math.random()*H,
+        r:Math.random()*1.3+0.2,
+        base:Math.random()*0.5+0.3,
+        tw:Math.random()*Math.PI*2,
+        ts:Math.random()*1.5+0.4,
+        c:Math.random()<0.12 ? (Math.random()<0.5?'#ffd9a0':'#a9c4ff') : '#ffffff'
+      });
+    }
+  }
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio||1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W*DPR; canvas.height = H*DPR;
+    canvas.style.width = W+'px'; canvas.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    cx = W/2; cy = H/2;
+    scale = Math.min(W,H)*0.46;
+    sunR = Math.max(16, scale*0.055);
+    makeStars();
+  }
+  window.addEventListener('resize', resize);
+
+  // ---- Helpers ----
+  function planetPos(p){
+    const a = p.phase + time*BASE_SPEED*(1/p.period);
+    return { x: cx + Math.cos(a)*p.orbit*scale,
+             y: cy + Math.sin(a)*p.orbit*scale,
+             a };
+  }
+  function hexToRgb(h){
+    h=h.replace('#','');
+    return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];
+  }
+  function shade(hex,amt){
+    let [r,g,b]=hexToRgb(hex);
+    r=Math.max(0,Math.min(255,r+amt));
+    g=Math.max(0,Math.min(255,g+amt));
+    b=Math.max(0,Math.min(255,b+amt));
+    return `rgb(${r|0},${g|0},${b|0})`;
+  }
+
+  // ---- Draw: background ----
+  function drawBackground(){
+    const g = ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.75);
+    g.addColorStop(0,'#0a1024');
+    g.addColorStop(0.5,'#060a18');
+    g.addColorStop(1,'#03050c');
+    ctx.fillStyle=g;
+    ctx.fillRect(0,0,W,H);
+
+    // faint nebula washes
+    const neb = (x,y,r,col)=>{
+      const ng=ctx.createRadialGradient(x,y,0,x,y,r);
+      ng.addColorStop(0,col); ng.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=ng; ctx.fillRect(0,0,W,H);
+    };
+    neb(W*0.22,H*0.3,Math.max(W,H)*0.5,'rgba(60,40,110,0.10)');
+    neb(W*0.8,H*0.75,Math.max(W,H)*0.5,'rgba(20,70,90,0.10)');
+
+    // stars
+    for(const s of stars){
+      const tw = s.base + Math.sin(time*s.ts + s.tw)*0.35;
+      ctx.globalAlpha = Math.max(0.05, tw);
+      ctx.fillStyle = s.c;
+      ctx.beginPath();
+      ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // ---- Draw: orbit rings ----
+  function drawOrbits(){
+    for(const p of PLANETS){
+      const r = p.orbit*scale;
+      const active = hovered===p;
+      ctx.beginPath();
+      ctx.arc(cx,cy,r,0,Math.PI*2);
+      ctx.strokeStyle = active ? 'rgba(255,210,122,0.55)' : 'rgba(150,175,255,0.10)';
+      ctx.lineWidth = active ? 1.6 : 1;
+      ctx.stroke();
+    }
+  }
+
+  // ---- Draw: sun ----
+  function drawSun(){
+    const pulse = 1 + Math.sin(time*1.4)*0.04;
+    const R = sunR*pulse;
+    // outer glow
+    let g = ctx.createRadialGradient(cx,cy,R*0.4,cx,cy,R*4.2);
+    g.addColorStop(0,'rgba(255,220,150,0.55)');
+    g.addColorStop(0.35,'rgba(255,170,80,0.22)');
+    g.addColorStop(1,'rgba(255,140,60,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(cx,cy,R*4.2,0,Math.PI*2); ctx.fill();
+
+    // body
+    let bg = ctx.createRadialGradient(cx-R*0.3,cy-R*0.3,R*0.1,cx,cy,R);
+    bg.addColorStop(0,'#fff6e0');
+    bg.addColorStop(0.5,'#ffd27a');
+    bg.addColorStop(1,'#ff9a3c');
+    ctx.fillStyle=bg;
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
+
+    // corona shimmer
+    ctx.globalAlpha=0.25+Math.sin(time*2.2)*0.1;
+    ctx.strokeStyle='#ffe6b0'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cx,cy,R*1.15,0,Math.PI*2); ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+
+  // ---- Draw: planet ----
+  function drawPlanet(p){
+    const pos = planetPos(p);
+    const r = p.r;
+    const active = hovered===p;
+
+    // glow
+    let g = ctx.createRadialGradient(pos.x,pos.y,r*0.3,pos.x,pos.y,r*(active?3.4:2.6));
+    g.addColorStop(0, hexToGlow(p.glow, active?0.5:0.32));
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(pos.x,pos.y,r*(active?3.4:2.6),0,Math.PI*2); ctx.fill();
+
+    // Saturn ring (behind + front)
+    if(p.ring){
+      drawRing(pos.x,pos.y,r,0.55, p.glow, active);
+    }
+
+    // body with light from the Sun
+    const ang = Math.atan2(pos.y-cy, pos.x-cx);
+    const lx = pos.x - Math.cos(ang)*r*0.5;
+    const ly = pos.y - Math.sin(ang)*r*0.5;
+    let bg = ctx.createRadialGradient(lx,ly,r*0.1,pos.x,pos.y,r);
+    bg.addColorStop(0, shade(p.color,55));
+    bg.addColorStop(0.6, p.color);
+    bg.addColorStop(1, shade(p.color,-70));
+    ctx.fillStyle=bg;
+    ctx.beginPath(); ctx.arc(pos.x,pos.y,r,0,Math.PI*2); ctx.fill();
+
+    // subtle banding for gas/ice giants
+    if(p.type!=='Rocky planet'){
+      ctx.save();
+      ctx.beginPath(); ctx.arc(pos.x,pos.y,r,0,Math.PI*2); ctx.clip();
+      ctx.globalAlpha=0.18;
+      for(let i=-2;i<=2;i++){
+        ctx.fillStyle = i%2? shade(p.color,-40):shade(p.color,30);
+        ctx.fillRect(pos.x-r, pos.y+i*r*0.35 - r*0.12, r*2, r*0.24);
+      }
+      ctx.restore();
+    }
+
+    // Saturn ring front
+    if(p.ring){
+      drawRing(pos.x,pos.y,r,0.55, p.glow, active, true);
+    }
+
+    // active ring highlight
+    if(active){
+      ctx.strokeStyle='rgba(255,255,255,0.85)';
+      ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.arc(pos.x,pos.y,r+3,0,Math.PI*2); ctx.stroke();
+    }
+
+    // label
+    drawLabel(p, pos, r);
+  }
+
+  function hexToGlow(hex,a){
+    const [r,g,b]=hexToRgb(hex);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function drawRing(x,y,r,tilt,glow,active,front){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(-0.35);
+    ctx.scale(1,tilt);
+    const inner=r*1.35, outer=r*2.15;
+    const seg = front? [0,Math.PI] : [Math.PI,Math.PI*2];
+    ctx.beginPath();
+    ctx.arc(0,0,outer,seg[0],seg[1]);
+    ctx.arc(0,0,inner,seg[1],seg[0],true);
+    ctx.closePath();
+    ctx.fillStyle = hexToGlow(glow, active?0.5:0.32);
+    ctx.fill();
+    ctx.strokeStyle = hexToGlow(glow, active?0.7:0.4);
+    ctx.lineWidth=1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawLabel(p,pos,r){
+    const active = hovered===p;
+    const lx = pos.x + r + 10;
+    const ly = pos.y;
+    ctx.font = (active?'600 ':'500 ')+'12px "Space Grotesk", sans-serif';
+    const tw = ctx.measureText(p.name).width;
+    ctx.globalAlpha = active?1:0.72;
+    ctx.fillStyle = active?'#ffffff':'#c3cbe4';
+    ctx.textBaseline='middle';
+    ctx.fillText(p.name, lx, ly);
+    ctx.globalAlpha=1;
+  }
+
+  // ---- Hit test ----
+  function pick(mx,my){
+    let best=null, bestD=Infinity;
+    for(const p of PLANETS){
+      const pos=planetPos(p);
+      const d=Math.hypot(mx-pos.x,my-pos.y);
+      const hit = Math.max(p.r+8, 16);
+      if(d<hit && d<bestD){ bestD=d; best=p; }
+    }
+    return best;
+  }
+
+  // ---- UI refs ----
+  const tooltip=document.getElementById('tooltip');
+  const tipName=document.getElementById('tipName');
+  const tipSub=document.getElementById('tipSub');
+  const info=document.getElementById('info');
+  const infoTag=document.getElementById('infoTag');
+  const infoName=document.getElementById('infoName');
+  const infoType=document.getElementById('infoType');
+  const infoDesc=document.getElementById('infoDesc');
+  const infoPeriod=document.getElementById('infoPeriod');
+  const infoDist=document.getElementById('infoDist');
+  const infoDiam=document.getElementById('infoDiam');
+  const infoMoons=document.getElementById('infoMoons');
+
+  function showInfo(p){
+    infoTag.textContent = p.type;
+    infoName.textContent = p.name;
+    infoType.textContent = p.type;
+    infoDesc.textContent = p.desc;
+    infoPeriod.textContent = p.period<1 ? (p.period*365.25).toFixed(0)+' days' : p.period.toFixed(1)+' yrs';
+    infoDist.textContent = p.dist;
+    infoDiam.textContent = p.diam;
+    infoMoons.textContent = p.moons;
+    info.style.borderLeftColor = p.glow;
+    info.classList.add('show');
+  }
+  function hideInfo(){ info.classList.remove('show'); }
+
+  function setHover(p){
+    if(p===hovered) return;
+    hovered=p;
+    if(p){
+      showInfo(p);
+      tipName.textContent=p.name;
+      tipSub.textContent=p.type+' · '+p.dist;
+      tooltip.classList.add('show');
+      document.body.style.cursor='pointer';
+    }else{
+      hideInfo();
+      tooltip.classList.remove('show');
+      document.body.style.cursor='default';
+    }
+  }
+
+  canvas.addEventListener('mousemove', e=>{
+    mouseX=e.clientX; mouseY=e.clientY;
+    setHover(pick(mouseX,mouseY));
+    if(hovered){
+      tooltip.style.left=mouseX+'px';
+      tooltip.style.top=mouseY+'px';
+    }
+  });
+  canvas.addEventListener('mouseleave', ()=>{ setHover(null); });
+
+  // ---- Controls ----
+  const playBtn=document.getElementById('playBtn');
+  const playIcon=document.getElementById('playIcon');
+  playBtn.addEventListener('click', ()=>{
+    playing=!playing;
+    playIcon.innerHTML = playing
+      ? '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>'
+      : '<path d="M8 5l11 7-11 7z"/>';
+  });
+  const speedEl=document.getElementById('speed');
+  const speedVal=document.getElementById('speedVal');
+  speedEl.addEventListener('input', ()=>{
+    speed=parseFloat(speedEl.value);
+    speedVal.textContent=speed.toFixed(1)+'×';
+  });
+
+  // ---- Legend ----
+  const legendList=document.getElementById('legendList');
+  PLANETS.forEach(p=>{
+    const li=document.createElement('li');
+    li.innerHTML=`<span class="dot" style="background:${p.color};color:${p.color}"></span>
+      <span class="nm">${p.name}</span>
+      <span class="yr">${p.period<1?(p.period*365.25).toFixed(0)+'d':p.period.toFixed(1)+'y'}</span>`;
+    li.addEventListener('mouseenter', ()=>setHover(p));
+    li.addEventListener('mouseleave', ()=>setHover(null));
+    legendList.appendChild(li);
+  });
+
+  // ---- Loop ----
+  function frame(now){
+    const dt = Math.min((now-last)/1000, 0.05);
+    last=now;
+    if(playing) time += dt*speed;
+
+    drawBackground();
+    drawOrbits();
+    drawSun();
+    for(const p of PLANETS) drawPlanet(p);
+
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

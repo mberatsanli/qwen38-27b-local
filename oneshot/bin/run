@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Run the community's one-shot vibe-check prompts against a local model.
+
+The angle here is not "which model is best" - that is well covered - but whether
+the *inference settings* change the answer. A KV cache quantised to q4_0 costs
+nothing measurable on perplexity; does it cost anything on a pelican?
+"""
+import json, os, re, sys, time, argparse, urllib.request, urllib.error
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def extract(kind, text):
+    if kind == 'svg':
+        m = re.search(r'<svg.*?</svg>', text, re.S)
+        return m.group(0) if m else None
+    m = re.search(r'```(?:html)?\s*(.*?)```', text, re.S)
+    body = m.group(1) if m else text
+    m = re.search(r'<!doctype html.*|<html.*', body, re.S | re.I)
+    return (m.group(0) if m else body).strip() or None
+
+def valid(kind, doc, finish_reason):
+    """A file that hit the token limit is truncated, not merely imperfect - it
+    will not run at all, so it fails here rather than being scored as output."""
+    if doc is None: return False, 'no output extracted'
+    if finish_reason == 'length': return False, 'truncated: hit max_tokens'
+    if kind == 'svg':
+        import xml.etree.ElementTree as ET
+        try: ET.fromstring(doc)
+        except Exception as e: return False, str(e)[:80]
+        return True, ''
+    lowered = doc.lower()
+    missing = [t for t in ('<script', 'canvas') if t not in lowered]
+    if missing: return False, 'missing ' + ', '.join(missing)
+    if not lowered.rstrip().endswith('</html>'): return False, 'does not close </html>'
+    return True, ''
+
+def ask(url, prompt, max_tokens, temperature, seed, effort):
+    body = {"model": "local", "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens, "temperature": temperature, "seed": seed}
+    if effort: body["reasoning_effort"] = effort
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    t0 = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=1800) as r:
+        d = json.load(r)
+    dt = time.perf_counter() - t0
+    choice = d['choices'][0]
+    msg = choice['message']
+    text = msg.get('content') or msg.get('reasoning_content') or ''
+    return text, d.get('usage', {}), dt, choice.get('finish_reason')
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--url', default='http://127.0.0.1:8080/v1/chat/completions')
+    ap.add_argument('--label', required=True, help='name for this configuration, e.g. "q4_0 KV"')
+    ap.add_argument('--only', help='comma separated prompt ids')
+    ap.add_argument('--runs', type=int, default=1)
+    ap.add_argument('--temperature', type=float, default=0.0)
+    ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--effort', default='none')
+    args = ap.parse_args()
+
+    ids = args.only.split(',') if args.only else None
+    specs = []
+    for fn in sorted(os.listdir(os.path.join(ROOT, 'prompts'))):
+        spec = json.load(open(os.path.join(ROOT, 'prompts', fn)))
+        if ids is None or spec['id'] in ids: specs.append(spec)
+
+    outdir = os.path.join(ROOT, 'results')
+    os.makedirs(outdir, exist_ok=True)
+    index_path = os.path.join(outdir, 'index.json')
+    index = json.load(open(index_path)) if os.path.exists(index_path) else []
+
+    for spec in specs:
+        for run in range(args.runs):
+            seed = args.seed + run
+            print(f"{spec['id']:<12} {args.label:<22} seed {seed} ... ", end='', flush=True)
+            try:
+                text, usage, dt, finish = ask(args.url, spec['prompt'], spec['max_tokens'],
+                                              args.temperature, seed, args.effort)
+            except urllib.error.URLError as e:
+                print(f"FAILED ({e.reason})"); continue
+            doc = extract(spec['kind'], text)
+            ok, why = valid(spec['kind'], doc, finish)
+            ext = 'svg' if spec['kind'] == 'svg' else 'html'
+            slug = re.sub(r'[^a-z0-9]+', '-', args.label.lower()).strip('-')
+            name = f"{spec['id']}__{slug}__s{seed}.{ext}"
+            if doc: open(os.path.join(outdir, name), 'w').write(doc)
+            entry = {"id": spec['id'], "title": spec['title'], "why": spec['why'],
+                     "kind": spec['kind'], "label": args.label, "seed": seed,
+                     "file": name if doc else None, "valid": ok, "problem": why,
+                     "tokens": usage.get('completion_tokens'), "seconds": round(dt, 1), "finish": finish,
+                     "tok_s": round(usage.get('completion_tokens', 0) / dt, 1) if dt else None}
+            index = [e for e in index
+                     if not (e['id'] == entry['id'] and e['label'] == entry['label']
+                             and e['seed'] == entry['seed'])]
+            index.append(entry)
+            print(f"{'ok ' if ok else 'INVALID'} {usage.get('completion_tokens')} tok  "
+                  f"{dt:.1f}s{'' if ok else '  <- ' + why}")
+    json.dump(index, open(index_path, 'w'), indent=1)
+    print(f"\n{len(index)} results in {outdir}")
+
+if __name__ == '__main__':
+    main()

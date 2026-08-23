@@ -1,0 +1,23 @@
+{
+ "note": "Defects observed by a human running each artifact, plus what the code shows. Nothing was fixed: repairing a one-shot artifact destroys the measurement it represents.",
+ "defects": {
+  "pelican__q4-0-kv-daily-profile__s42.svg": [
+   {"severity":"major","what":"Pelican's legs reach the pedals but then extend upward past the top of the viewBox; the figure never terminates.","evidence":"observed"},
+   {"severity":"note","what":"Static by design - the benchmark asks for a still SVG, not an animation.","evidence":"by design"}
+  ],
+  "flappy__q4-0-kv-daily-profile__s42.html": [
+   {"severity":"major","what":"Difficulty tuning makes the first gap effectively unpassable: PIPE_SPACING is 220px on a canvas capped at 440px, so two pipes are always on screen with 154px of clear air between them.","evidence":"observed + code"},
+   {"severity":"latent","what":"Frame-rate independence is plumbed but dead. loop() computes dt = (t-last)/16.667, clamps it, and passes it to update(dt) - which never multiplies by it. Physics runs per-frame, not per-second.","evidence":"code: p.x -= PIPE_SPEED; bird.vy += GRAVITY; bird.y += bird.vy;","impact":"Harmless on the 60Hz display it was tested on; a 144Hz monitor runs the game 2.4x too fast."}
+  ],
+  "mandelbrot__q4-0-kv-daily-profile__s42.html": [
+   {"severity":"fatal","what":"Renders a black screen.","evidence":"observed"},
+   {"severity":"fatal","what":"HiDPI mismatch: createImageData(W,H) allocates in CSS pixels while the canvas backing store is W*DPR x H*DPR. putImageData ignores the current transform and writes in device pixels, so on a DPR=2 display the image lands in the top-left quarter and the rest stays blank.","evidence":"code: canvas.width = W*DPR (line 265) vs img = ctx.createImageData(W,H) (line 270)"}
+  ],
+  "solar__q4-0-kv-daily-profile__s42.html": [
+   {"severity":"none","what":"Orbital periods verified against real values: all eight planets match to three decimal places, 0% deviation relative to Earth.","evidence":"checked programmatically"}
+  ],
+  "heptagon__q4-0-kv-daily-profile__s42.html": [
+   {"severity":"fatal","what":"Never completed - hit the 14,000 token ceiling mid-function.","evidence":"finish_reason: length"}
+  ]
+ }
+}

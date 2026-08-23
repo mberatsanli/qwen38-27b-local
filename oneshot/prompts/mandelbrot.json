@@ -1,0 +1,8 @@
+{
+ "id": "mandelbrot",
+ "kind": "html",
+ "max_tokens": 12000,
+ "title": "Zoomable Mandelbrot",
+ "why": "Pure numerical code plus an interaction model. Wrong escape-time maths produces something that still renders but is visibly not a Mandelbrot set, so it fails loudly rather than silently.",
+ "prompt": "Write a single self-contained HTML file that renders the Mandelbrot set on a canvas and lets the user click to zoom in and shift-click to zoom out. Colour the escape-time bands smoothly. Use only HTML, CSS and vanilla JavaScript. Output only the file contents."
+}
